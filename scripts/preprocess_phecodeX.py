@@ -5,7 +5,7 @@ import numpy as np
 pd.options.mode.copy_on_write = True  # safer assignment semantics
 
 # ---- Paths ------------------------------------------------------------------
-MAIN_DIR = "/sc/arion/projects/va-biobank/jamie/phenocode-embeddings"
+MAIN_DIR = "/sc/arion/projects/va-biobank/jamie/phecoder"
 PATH_OUTPAT_COUNT   = os.path.join(MAIN_DIR, "data/raw/david/outpat_icd_summary_counts.txt")
 PATH_OUTPAT_COUNTPAT   = os.path.join(MAIN_DIR, "data/raw/david/outpat_icd_summary_counts_patient.txt")
 PATH_INPAT_COUNT   = os.path.join(MAIN_DIR, "data/raw/david/icd_summary_inpat_counts.txt")
@@ -79,21 +79,23 @@ phecode_icd_df = phecode_icd_df.drop('vocabulary_id', axis=1)
 
 icd_info_df = icd_info_df.rename(
     columns= {
-    'ICDCode': 'icd',
+    'ICDCode': 'icd_code',
     'ICDDescription': 'icd_string',
 }
 )
 phecode_info_df = phecode_info_df.rename(
     columns= {
-    'ICDCode': 'icd',
+    'ICDCode': 'icd_code',
     'ICDDescription': 'icd_string',
 }
 )
 phecode_icd_df = phecode_icd_df.rename(
     columns= {
-    'ICD': 'icd',
+    'ICD': 'icd_code',
 }
 )
+
+breakpoint()
 
 # Save
 icd_info_df.to_parquet(os.path.join(SAVE_DIR, "icd_info.parquet"), index=False)

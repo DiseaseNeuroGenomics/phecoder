@@ -9,7 +9,7 @@ def build_st_model(model_name: str, device: str = "cpu"):
 def encode_texts(model, texts, encode_kwargs: dict) -> np.ndarray:
     """
     Thin wrapper that forwards kwargs to SentenceTransformer.encode().
-    We DO NOT inject batch_size unless the user provided it.
+    Do not inject batch_size unless the user provided it.
     """
     emb = model.encode(texts, **encode_kwargs)
     return np.asarray(emb, dtype=np.float32)

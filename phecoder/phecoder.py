@@ -8,6 +8,7 @@ import torch
 
 from ._embed import build_st_model, encode_texts
 from ._sim import semantic_search_topk
+from ._eval import rank_metrics_for_ks
 from ._util import (
     sanitize_model_name,
     ensure_dir,
@@ -33,7 +34,7 @@ class Phecoder:
     device : 'cuda', 'cpu', or None (auto-detect if None)
     dtype : 'float16' or 'float32' (storage for .npz embeddings)
     st_encode_kwargs : dict of kwargs passed to model.encode() (global)
-    st_search_kwargs : dict of kwargs passed to util.semantic_search()
+    st_search_kwargs : dict of kwargs passed to util.semantic_search(). Default: top_k=1000.
     per_model_encode_kwargs : dict[str, dict] overrides for specific models
     """
 
@@ -102,38 +103,233 @@ class Phecoder:
         for model_name in self.models:
             self._run_one_model(model_name, overwrite=overwrite)
 
-    def get_ranked_icds(self, model: str, phecode: str) -> pd.DataFrame:
+    def get_results(
+        self,
+        model: str | None = None,
+        phecode: str | None = None,
+    ) -> pd.DataFrame:
         """
-        Return ranked ICD list for a single phecode+model (long-format DataFrame).
-        """
-        subdir = self._run_dir(model)
-        p = subdir / "similarity.parquet"
-        if not p.exists():
-            return pd.DataFrame()
-        df = pd.read_parquet(p)
-        safe_model = sanitize_model_name(model)
-        return (
-            df[(df["model"] == safe_model) & (df["phecode"] == phecode)]
-            .sort_values("rank")
-            .reset_index(drop=True)
-        )
+        Unified results accessor.
 
-    def get_all_results(self) -> pd.DataFrame:
+        - If both `model` and `phecode` are None: return concatenated results across all models
+        for the *current* phecode set (same behavior as old `get_all_results()`).
+        - If `model` is provided: restrict to that model.
+        - If `phecode` is provided: restrict to that phecode ID.
+        Convenience: if `phecode` matches a row in `self.phecode_df['phecode_string']`
+        (case-insensitive), it will be mapped to the internal phecode ID.
+
+        Returns an empty DataFrame if nothing is found.
         """
-        Concatenate all similarity results across models (if present).
-        """
-        frames = []
-        for m in self.models:
+        # determine which models to read
+        if model is None:
+            models_to_use = list(self.models)
+            model_filter = None
+        else:
+            models_to_use = [model]
+            model_filter = sanitize_model_name(model)
+
+        # optional phecode resolution: allow passing the *string* label
+        phe_filter = None
+        if phecode is not None:
+            # if user passed exact ID, keep; else try to map from phecode_string
+            if (self.phecode_df is not None) and (phecode not in set(self.phecode_df["phecode"])):
+                # try case-insensitive match on phecode_string
+                m = self.phecode_df[self.phecode_df["phecode_string"].str.lower() == str(phecode).lower()]
+                if not m.empty:
+                    phe_filter = m.iloc[0]["phecode"]
+                else:
+                    phe_filter = phecode  # keep as-is; may still match older runs
+            else:
+                phe_filter = phecode
+
+        frames: list[pd.DataFrame] = []
+        for m in models_to_use:
             subdir = self._run_dir(m)
             p = subdir / "similarity.parquet"
-            if p.exists():
-                frames.append(pd.read_parquet(p))
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+            if not p.exists():
+                continue
+            df = pd.read_parquet(p)
+            # ensure we only return rows that belong to the model directory
+            if model_filter is not None:
+                df = df[df["model"] == model_filter]
+            if phe_filter is not None:
+                df = df[df["phecode"] == phe_filter]
+            if not df.empty:
+                frames.append(df)
+
+        if not frames:
+            # standard column order if nothing found
+            return pd.DataFrame(columns=[
+                "model","phecode","phecode_string","icd_code","icd_string",
+                "score","rank","n_icd","n_phecodes","created_at"
+            ])
+
+        return pd.concat(frames, ignore_index=True)
+
+
+    def evaluate(
+        self,
+        phecode_ground_truth: pd.DataFrame,
+        models: Optional[list[str]] = None,
+        k: Optional[Union[int, Iterable[int]]] = None,
+        include_curves: bool = False,
+        drop_missing: bool = True,
+        run_hash: Optional[str] = None,
+    ):
+        """
+        Rank-based evaluation per phecode (per model) against a gold long-table.
+
+        Parameters
+        ----------
+        phecode_ground_truth : DataFrame with columns ['phecode','icd_code'] (long format).
+        models : optional subset of models to evaluate; defaults to self.models.
+        k : None | int | list[int]
+            - None  → evaluate over the full stored ranking (i.e., whatever top_k you saved).
+            - int   → compute AUPRC@k, P@k, R@k.
+            - list  → compute metrics for each k in the list and stack rows.
+        include_curves : if True, returns (metrics_df, curves_df); else returns metrics_df.
+        drop_missing : if True (default), only return results for phecodes present in BOTH phecode_ground_truth and the run.
+                    If False, emit placeholder rows for phecodes missing in the run (n_considered=0, auprc=0, etc.).
+        run_hash : provide run_hash if you wish to evaluate a previous run, and not the most recent.
+
+        Returns
+        -------
+        if include_curves=False: metrics_df
+        if include_curves=True : (metrics_df, curves_df)
+
+        metrics_df columns:
+        ['model','phecode','k','n_considered','n_gold_pos','auprc','precision_at_k','recall_at_k']
+
+        curves_df (only if include_curves=True):
+        ['model','phecode','curve_precision','curve_recall']
+        (one row per (model, phecode); curves correspond to largest effective K across requested ks)
+        """
+        # validate gold
+        req = {"phecode", "icd_code"}
+        miss = req - set(phecode_ground_truth.columns)
+        if miss:
+            raise ValueError(f"phecode_ground_truth missing required columns: {miss}")
+        phecode_ground_truth = phecode_ground_truth[["phecode", "icd_code"]].dropna().drop_duplicates()
+
+        # normalize k(s)
+        if k is None:
+            k_values: list[Optional[int]] = [None]
+        elif isinstance(k, int):
+            k_values = [k]
+        else:
+            seen = set()
+            k_values = []
+            for kk in k:
+                kk_norm = None if kk is None else int(kk)
+                key = ("None" if kk_norm is None else kk_norm)
+                if key not in seen:
+                    seen.add(key)
+                    k_values.append(kk_norm)
+
+        # map gold phecode → set(ICDs)
+        gold_map = {p: set(g["icd_code"].tolist())
+                    for p, g in phecode_ground_truth.groupby("phecode", sort=False)}
+
+        models_to_use = self.models if models is None else list(models)
+
+        metrics_rows = []
+        curves_rows = []
+
+        for model_name in models_to_use:
+            safe_model = sanitize_model_name(model_name)
+
+            # Choose which run to read from
+            if run_hash is None:
+                # current run for this instance's phecode set
+                subdir = self._run_dir(model_name)
+            else:
+                # explicit previous run
+                subdir = self.output_dir / safe_model / "runs" / run_hash
+
+            sim_path = subdir / "similarity.parquet"
+            if not sim_path.exists():
+                continue
+
+            sim = pd.read_parquet(sim_path)
+            sim = sim[sim["model"] == safe_model]
+
+            # Determine phecodes available in this run (for this model)
+            available_phecodes = set(sim["phecode"].unique())
+
+            # Choose which phecodes to evaluate
+            if drop_missing:
+                target_phecodes = sorted(set(gold_map.keys()) & available_phecodes)
+            else:
+                target_phecodes = sorted(gold_map.keys())
+
+            for phe in target_phecodes:
+                gold_set = gold_map[phe]
+                sub = sim[sim["phecode"] == phe][["icd_code", "rank"]]
+
+                if sub.empty:
+                    # Only hit when drop_missing=False
+                    rows_for_k = []
+                    for k_val in k_values:
+                        eff_k = None if (k_val is None) else 0
+                        rows_for_k.append({
+                            "k": eff_k,
+                            "n_considered": 0,
+                            "n_gold_pos": int(len(gold_set)),
+                            "auprc": 0.0,
+                            "precision_at_k": float("nan") if eff_k == 0 else float("nan"),
+                            "recall_at_k": 0.0,
+                        })
+                    for r in rows_for_k:
+                        metrics_rows.append({
+                            "model": safe_model,
+                            "phecode": phe,
+                            **r
+                        })
+                    if include_curves:
+                        curves_rows.append({
+                            "model": safe_model,
+                            "phecode": phe,
+                            "curve_precision": np.zeros(0, dtype=float),
+                            "curve_recall": np.zeros(0, dtype=float),
+                        })
+                    continue
+
+                # Normal path: we have results for this phecode
+                rows_for_k, curve_P, curve_R, K_star = rank_metrics_for_ks(sub, gold_set, k_values)
+
+                for r in rows_for_k:
+                    metrics_rows.append({
+                        "model": safe_model,
+                        "phecode": phe,
+                        **r
+                    })
+                if include_curves:
+                    curves_rows.append({
+                        "model": safe_model,
+                        "phecode": phe,
+                        "curve_precision": curve_P,
+                        "curve_recall": curve_R,
+                    })
+
+        metrics_df = pd.DataFrame(
+            metrics_rows,
+            columns=["model","phecode","k","n_considered","n_gold_pos","auprc","precision_at_k","recall_at_k"]
+        )
+
+        if include_curves:
+            curves_df = pd.DataFrame(
+                curves_rows,
+                columns=["model","phecode","curve_precision","curve_recall"]
+            )
+            return metrics_df, curves_df
+
+        return metrics_df
+
 
     # ───────────────────────── internal methods ────────────────────────
     def _run_one_model(self, model_name: str, overwrite: bool):
         safe = sanitize_model_name(model_name)
-        model_dir = self.output_dir / "embeddings" / safe
+        model_dir = self.output_dir / safe
         ensure_dir(model_dir)
 
         icd_idx_pq = model_dir / "icd_index.parquet"
@@ -177,14 +373,24 @@ class Phecoder:
         self.phecode_df.to_parquet(phe_idx_pq, index=False)
         np.savez_compressed(phe_npz, X=phe_vecs)
 
-        # Similarity via SentenceTransformers util.semantic_search
+        # Similarity via SentenceTransformers util
         icd_vecs32 = np.load(icd_npz)["X"].astype(np.float32)
         phe_vecs32 = np.load(phe_npz)["X"].astype(np.float32)
+
+        # Default top_k = 1000 unless user specified; cap at corpus size
+        search_kwargs = dict(self.st_search_kwargs)  # user-supplied overrides
+        if "top_k" not in search_kwargs or search_kwargs["top_k"] is None:
+            search_kwargs["top_k"] = min(1000, icd_vecs32.shape[0])
+        else:
+            # ensure int + safe cap
+            search_kwargs["top_k"] = min(int(search_kwargs["top_k"]), icd_vecs32.shape[0])
+
+        # Semantic search
         scores_list, idx_list = semantic_search_topk(
             query=phe_vecs32,
             corpus=icd_vecs32,
             device=self.device,
-            st_search_kwargs=self.st_search_kwargs,
+            st_search_kwargs=search_kwargs,
         )
 
         # Build long table
@@ -224,7 +430,7 @@ class Phecoder:
             "storage_dtype": "float16" if self.storage_dtype==np.float16 else "float32",
             "device": self.device,
             "encode_kwargs": self._encode_kwargs_for_model(model_name),
-            "search_kwargs": self.st_search_kwargs,
+            "search_kwargs": search_kwargs,   # <-- record effective top_k
             "created_at": now_iso(),
         }
         with open(manifest_path, "w") as f:
@@ -245,7 +451,7 @@ class Phecoder:
 
     def _run_dir(self, model_name: str) -> Path:
         safe = sanitize_model_name(model_name)
-        return self.output_dir / "embeddings" / safe / "runs" / self.phecode_hash
+        return self.output_dir / safe / "runs" / self.phecode_hash
 
     @staticmethod
     def _normalize_phecodes(phecodes) -> pd.DataFrame:
@@ -261,3 +467,66 @@ class Phecoder:
             rows = [(f"PHEC_{i+1:04d}", s) for i, s in enumerate(phecodes)]
             return pd.DataFrame(rows, columns=["phecode","phecode_string"])
         raise TypeError("phecodes must be DataFrame, str, or list[str]")
+
+    def list_runs(self, model: Optional[str] = None) -> pd.DataFrame:
+        """
+        List stored runs.
+
+        If `model` is provided, returns runs only for that model.
+        If `model` is None, returns runs for **all** models found under `output_dir`.
+
+        Returns a DataFrame with columns:
+        ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
+        """
+        runs_dirs = []
+
+        if model is None:
+            # scan all model dirs under output_dir that contain a 'runs' subdir
+            if self.output_dir.exists():
+                for d in sorted(self.output_dir.iterdir()):
+                    if d.is_dir():
+                        r = d / "runs"
+                        if r.is_dir():
+                            runs_dirs.append(r)
+        else:
+            safe = sanitize_model_name(model)
+            r = self.output_dir / safe / "runs"
+            if r.is_dir():
+                runs_dirs.append(r)
+
+        rows = []
+        for rdir in runs_dirs:
+            model_safe = rdir.parent.name  # directory name above 'runs'
+            for rd in sorted(rdir.iterdir()):
+                if not rd.is_dir():
+                    continue
+                man = rd / "manifest.json"
+                created_at = None
+                top_k = None
+                try:
+                    if man.exists():
+                        m = json.loads(man.read_text())
+                        created_at = m.get("created_at")
+                        top_k = (m.get("search_kwargs") or {}).get("top_k")
+                except Exception:
+                    # keep row with whatever we have
+                    pass
+                rows.append({
+                    "model": model_safe,
+                    "run_hash": rd.name,
+                    "created_at": created_at,
+                    "top_k": top_k,
+                    "run_dir": str(rd),
+                })
+
+        df = pd.DataFrame(rows, columns=["model","run_hash","created_at","top_k","run_dir"])
+        if not df.empty:
+            # newest first; then model; then hash
+            df = df.sort_values(["created_at","model","run_hash"], ascending=[False, True, True], na_position="last")
+            df = df.reset_index(drop=True)
+        return df
+
+    def load_results_from_hash(self, model: str, run_hash: str) -> pd.DataFrame:
+        safe = sanitize_model_name(model)
+        p = self.output_dir / safe / "runs" / run_hash / "similarity.parquet"
+        return pd.read_parquet(p)

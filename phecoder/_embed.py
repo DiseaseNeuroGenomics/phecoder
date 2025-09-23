@@ -2,9 +2,11 @@ from __future__ import annotations
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
+
 def build_st_model(model_name: str, device: str = "cpu"):
-    # Let SentenceTransformer manage local cache / downloads.
+    # Let SentenceTransformer manages local cache / downloads.
     return SentenceTransformer(model_name, device=device)
+
 
 def encode_texts(model, texts, encode_kwargs: dict) -> np.ndarray:
     """

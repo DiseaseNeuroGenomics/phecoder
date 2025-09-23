@@ -1,13 +1,19 @@
 from __future__ import annotations
 from pathlib import Path
 import pandas as pd
-import hashlib, datetime, re
+import hashlib
+import datetime
+import re
 from typing import Any, Dict, Optional
 
-def ensure_dir(p: Path): p.mkdir(parents=True, exist_ok=True)
+
+def ensure_dir(p: Path):
+    p.mkdir(parents=True, exist_ok=True)
+
 
 def sanitize_model_name(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]+", "-", s)
+
 
 def df_fingerprint(df: pd.DataFrame) -> str:
     """
@@ -21,8 +27,10 @@ def df_fingerprint(df: pd.DataFrame) -> str:
         h.update(b"\n")
     return h.hexdigest()
 
+
 def now_iso() -> str:
     return datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
 
 def clean_kwargs(d: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """

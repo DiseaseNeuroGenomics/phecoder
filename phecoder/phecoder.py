@@ -120,16 +120,16 @@ class Phecoder:
         self,
         model: str | None = None,
         phecode: str | None = None,
+        phecode_ground_truth: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
-        Unified results accessor.
+        Method to retrieve results.
 
         - If both `model` and `phecode` are None: return concatenated results across all models
         for the *current* phecode set (same behavior as old `get_all_results()`).
         - If `model` is provided: restrict to that model.
         - If `phecode` is provided: restrict to that phecode ID.
-        Convenience: if `phecode` matches a row in `self.phecode_df['phecode_string']`
-        (case-insensitive), it will be mapped to the internal phecode ID.
+        - If phecode_ground_truth is given, is_known column added, i.e. ICD code is known for given Phecode
 
         Returns an empty DataFrame if nothing is found.
         """
@@ -192,7 +192,38 @@ class Phecoder:
                 ]
             )
 
-        return pd.concat(frames, ignore_index=True)
+        results = pd.concat(frames, ignore_index=True)
+
+        # Add phecode labels to e.g. filter new icds for phecodes
+        if phecode_ground_truth is not None and not phecode_ground_truth.empty:
+            results = self._annotate_known_icds(results, phecode_ground_truth)  
+
+        return results
+
+    def _annotate_known_icds(
+        self,
+        results: pd.DataFrame,
+        phecode_ground_truth: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Add `is_known` (1 if ICD belongs to ground truth for phecode, else 0)."""
+        results = results.copy()
+        results["icd_code"] = results["icd_code"].astype(str)
+        phecode_ground_truth = phecode_ground_truth.copy()
+        phecode_ground_truth["icd_code"] = phecode_ground_truth["icd_code"].astype(str)
+
+        # fast membership via merge
+        merged = results.merge(
+            phecode_ground_truth[["phecode", "icd_code"]],
+            on=["phecode", "icd_code"],
+            how="left",
+            indicator=True,
+        )
+
+        # mark known/novel
+        merged["is_known"] = (merged["_merge"] == "both").astype("int8")
+        merged.drop(columns=["_merge"], inplace=True)
+
+        return merged
 
     def evaluate(
         self,
@@ -292,7 +323,22 @@ class Phecoder:
             # grouped evaluation
             for phe, sub in sim.groupby("phecode", sort=False):
                 phe_str = str(phe)
-                gold_set = gold_map.get(phe_str, set())
+
+                # full gold set for this phecode
+                gold_set_full = gold_map.get(phe_str, set())
+
+                # restrict to ICDs present in icd_df
+                icd_universe = set(self.icd_df["icd_code"])
+                gold_set = gold_set_full & icd_universe
+
+                # warn if some relevant ICDs are missing from the phecode definition
+                missing = gold_set_full - icd_universe
+                if missing:
+                    print(
+                        f"[evaluate] {len(missing)} ground truth ICD codes for phecode {phe_str} "
+                        f"not in ICD dataframe and excluded: {sorted(list(missing))[:10]}{'...' if len(missing) > 10 else ''}",
+                        flush=True
+                    )
 
                 max_rank = int(sub["rank"].max())
                 k_eff = [max_rank if kk is None else kk for kk in k_values]
@@ -331,9 +377,9 @@ class Phecoder:
                 curves_rows,
                 columns=["model", "phecode", "curve_precision", "curve_recall"],
             )
-            return metrics_df, curves_df
+            curves_df.to_parquet(self.output_dir / 'pr_curves.parquet')
 
-        return metrics_df
+        metrics_df.to_parquet(self.output_dir / 'metrics.parquet')
 
 
     # ───────────────────────── internal methods ────────────────────────

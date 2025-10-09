@@ -11,9 +11,9 @@ from huggingface_hub import snapshot_download
 import gc
 
 from ._embed import build_st_model, encode_texts
-from ._sim import semantic_search_topk
-from ._eval import rank_metrics_for_ks
-from ._util import (
+from ._similarity import semantic_search_topk
+from ._evalaluate import rank_metrics_for_ks
+from ._utils import (
     sanitize_model_name,
     ensure_dir,
     df_fingerprint,
@@ -200,31 +200,6 @@ class Phecoder:
 
         return results
 
-    def _annotate_known_icds(
-        self,
-        results: pd.DataFrame,
-        phecode_ground_truth: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Add `is_known` (1 if ICD belongs to ground truth for phecode, else 0)."""
-        results = results.copy()
-        results["icd_code"] = results["icd_code"].astype(str)
-        phecode_ground_truth = phecode_ground_truth.copy()
-        phecode_ground_truth["icd_code"] = phecode_ground_truth["icd_code"].astype(str)
-
-        # fast membership via merge
-        merged = results.merge(
-            phecode_ground_truth[["phecode", "icd_code"]],
-            on=["phecode", "icd_code"],
-            how="left",
-            indicator=True,
-        )
-
-        # mark known/novel
-        merged["is_known"] = (merged["_merge"] == "both").astype("int8")
-        merged.drop(columns=["_merge"], inplace=True)
-
-        return merged
-
     def evaluate(
         self,
         phecode_ground_truth: pd.DataFrame,
@@ -381,6 +356,75 @@ class Phecoder:
 
         metrics_df.to_parquet(self.output_dir / 'metrics.parquet')
 
+    def list_runs(self, model: Optional[str] = None) -> pd.DataFrame:
+        """
+        List stored runs.
+
+        If `model` is provided, returns runs only for that model.
+        If `model` is None, returns runs for **all** models found under `output_dir`.
+
+        Returns a DataFrame with columns:
+        ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
+        """
+        runs_dirs = []
+
+        if model is None:
+            # scan all model dirs under output_dir that contain a 'runs' subdir
+            if self.output_dir.exists():
+                for d in sorted(self.output_dir.iterdir()):
+                    if d.is_dir():
+                        r = d / "runs"
+                        if r.is_dir():
+                            runs_dirs.append(r)
+        else:
+            safe = sanitize_model_name(model)
+            r = self.output_dir / safe / "runs"
+            if r.is_dir():
+                runs_dirs.append(r)
+
+        rows = []
+        for rdir in runs_dirs:
+            for rd in sorted(rdir.iterdir()):
+                if not rd.is_dir():
+                    continue
+                man = rd / "manifest.json"
+                created_at = None
+                top_k = None
+                try:
+                    if man.exists():
+                        m = json.loads(man.read_text())
+                        created_at = m.get("created_at")
+                        top_k = (m.get("search_kwargs") or {}).get("top_k")
+                except Exception:
+                    # keep row with whatever we have
+                    pass
+                rows.append(
+                    {
+                        "model": model,
+                        "run_hash": rd.name,
+                        "created_at": created_at,
+                        "top_k": top_k,
+                        "run_dir": str(rd),
+                    }
+                )
+
+        df = pd.DataFrame(
+            rows, columns=["model", "run_hash", "created_at", "top_k", "run_dir"]
+        )
+        if not df.empty:
+            # newest first; then model; then hash
+            df = df.sort_values(
+                ["created_at", "model", "run_hash"],
+                ascending=[False, True, True],
+                na_position="last",
+            )
+            df = df.reset_index(drop=True)
+        return df
+
+    def load_results_from_hash(self, model: str, run_hash: str) -> pd.DataFrame:
+        safe = sanitize_model_name(model)
+        p = self.output_dir / safe / "runs" / run_hash / "similarity.parquet"
+        return pd.read_parquet(p)
 
     # ───────────────────────── internal methods ────────────────────────
     def _run_one_model(self, model_name: str, overwrite: bool):
@@ -610,72 +654,29 @@ class Phecoder:
             return pd.DataFrame(rows, columns=["phecode", "phecode_string"])
         raise TypeError("phecodes must be DataFrame, str, or list[str]")
 
-    def list_runs(self, model: Optional[str] = None) -> pd.DataFrame:
-        """
-        List stored runs.
+    def _annotate_known_icds(
+        self,
+        results: pd.DataFrame,
+        phecode_ground_truth: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Add `is_known` (1 if ICD belongs to ground truth for phecode, else 0)."""
+        results = results.copy()
+        results["icd_code"] = results["icd_code"].astype(str)
+        phecode_ground_truth = phecode_ground_truth.copy()
+        phecode_ground_truth["icd_code"] = phecode_ground_truth["icd_code"].astype(str)
 
-        If `model` is provided, returns runs only for that model.
-        If `model` is None, returns runs for **all** models found under `output_dir`.
-
-        Returns a DataFrame with columns:
-        ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
-        """
-        runs_dirs = []
-
-        if model is None:
-            # scan all model dirs under output_dir that contain a 'runs' subdir
-            if self.output_dir.exists():
-                for d in sorted(self.output_dir.iterdir()):
-                    if d.is_dir():
-                        r = d / "runs"
-                        if r.is_dir():
-                            runs_dirs.append(r)
-        else:
-            safe = sanitize_model_name(model)
-            r = self.output_dir / safe / "runs"
-            if r.is_dir():
-                runs_dirs.append(r)
-
-        rows = []
-        for rdir in runs_dirs:
-            for rd in sorted(rdir.iterdir()):
-                if not rd.is_dir():
-                    continue
-                man = rd / "manifest.json"
-                created_at = None
-                top_k = None
-                try:
-                    if man.exists():
-                        m = json.loads(man.read_text())
-                        created_at = m.get("created_at")
-                        top_k = (m.get("search_kwargs") or {}).get("top_k")
-                except Exception:
-                    # keep row with whatever we have
-                    pass
-                rows.append(
-                    {
-                        "model": model,
-                        "run_hash": rd.name,
-                        "created_at": created_at,
-                        "top_k": top_k,
-                        "run_dir": str(rd),
-                    }
-                )
-
-        df = pd.DataFrame(
-            rows, columns=["model", "run_hash", "created_at", "top_k", "run_dir"]
+        # fast membership via merge
+        merged = results.merge(
+            phecode_ground_truth[["phecode", "icd_code"]],
+            on=["phecode", "icd_code"],
+            how="left",
+            indicator=True,
         )
-        if not df.empty:
-            # newest first; then model; then hash
-            df = df.sort_values(
-                ["created_at", "model", "run_hash"],
-                ascending=[False, True, True],
-                na_position="last",
-            )
-            df = df.reset_index(drop=True)
-        return df
 
-    def load_results_from_hash(self, model: str, run_hash: str) -> pd.DataFrame:
-        safe = sanitize_model_name(model)
-        p = self.output_dir / safe / "runs" / run_hash / "similarity.parquet"
-        return pd.read_parquet(p)
+        # mark known/novel
+        merged["is_known"] = (merged["_merge"] == "both").astype("int8")
+        merged.drop(columns=["_merge"], inplace=True)
+
+        return merged
+
+

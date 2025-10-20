@@ -10,16 +10,21 @@ import torch
 from huggingface_hub import snapshot_download
 import gc
 
-from ._embed import build_st_model, encode_texts
-from ._similarity import semantic_search_topk
-from ._evalaluate import rank_metrics_for_ks
-from ._utils import (
-    sanitize_model_name,
-    ensure_dir,
-    df_fingerprint,
-    now_iso,
-    clean_kwargs,
+from ._embed import _build_st_model, _encode_texts
+from ._similarity import _semantic_search_topk
+from ._evaluate import _rank_metrics_for_ks
+from ._ensemble import _build_ensemble_from_runs
+from .utils import (
+    _sanitize_model_name,
+    _ensure_dir,
+    _df_fingerprint,
+    _now,
+    _clean_kwargs,
+    _find_all_models,
+    _resolve_model_dir
 )
+from .utils import list_runs as list_runs_utils
+from .utils import load_results as load_results_utils
 
 class Phecoder:
     """
@@ -40,7 +45,7 @@ class Phecoder:
     device : 'cuda', 'cpu', or None (auto-detect if None)
     dtype : 'float16' or 'float32' (storage for .npz embeddings)
     st_encode_kwargs : dict of kwargs passed to model.encode() (global)
-    st_search_kwargs : dict of kwargs passed to util.semantic_search(). Default: top_k=1000.
+    st_search_kwargs : dict of kwargs passed to util._semantic_search(). Default: top_k=1000.
     per_model_encode_kwargs : dict[str, dict] overrides for specific models
     """
 
@@ -72,7 +77,7 @@ class Phecoder:
 
         # Paths / env
         self.output_dir = Path(output_dir)
-        ensure_dir(self.output_dir)
+        _ensure_dir(self.output_dir)
         self.icd_cache_dir = Path(icd_cache_dir) if icd_cache_dir else None
 
         # Device
@@ -84,9 +89,9 @@ class Phecoder:
         self.storage_dtype = np.float16 if dtype == "float16" else np.float32
 
         # Encode/search kwargs
-        self.st_encode_kwargs = clean_kwargs(st_encode_kwargs)
+        self.st_encode_kwargs = _clean_kwargs(st_encode_kwargs)
         self.per_model_encode_kwargs = per_model_encode_kwargs or {}
-        self.st_search_kwargs = clean_kwargs(st_search_kwargs)
+        self.st_search_kwargs = _clean_kwargs(st_search_kwargs)
         # Sensible defaults if not provided
         self.st_encode_kwargs.setdefault("normalize_embeddings", True)
         self.st_encode_kwargs.setdefault("convert_to_numpy", True)
@@ -96,8 +101,8 @@ class Phecoder:
         self.st_encode_kwargs.pop("device", None)
 
         # Fingerprints for skip-logic
-        self.icd_fp = df_fingerprint(self.icd_df)
-        self.phecode_fp = df_fingerprint(self.phecode_df)
+        self.icd_fp = _df_fingerprint(self.icd_df)
+        self.phecode_fp = _df_fingerprint(self.phecode_df)
         self.phecode_hash = hashlib.sha256(self.phecode_fp.encode()).hexdigest()[:16]
 
     # ─────────────────────────── public API ────────────────────────────
@@ -116,89 +121,59 @@ class Phecoder:
         for model_name in self.models:
             self._run_one_model(model_name, overwrite=overwrite)
 
-    def get_results(
+    def load_results(
         self,
-        model: str | None = None,
+        models: Union[str, Iterable[str], None] = None,
         phecode: str | None = None,
         phecode_ground_truth: pd.DataFrame | None = None,
+        include_ensembles: bool = False, 
     ) -> pd.DataFrame:
+        return load_results_utils(
+            output_dir=self.output_dir,
+            phecode_hash=self.phecode_hash,
+            phecode_df=self.phecode_df,
+            models=models,
+            phecode=phecode,
+            phecode_ground_truth=phecode_ground_truth,
+            include_ensembles=include_ensembles
+        )
+
+    def build_ensemble(
+        self,
+        models: Optional[list[str]] = None,
+        method: str = "rrf",
+        method_kwargs: Optional[Dict[str, Any]] = None,
+        name: Optional[str] = None,
+        run_hash: Optional[str] = None,
+        overwrite: bool = False,
+    ) -> None:
         """
-        Method to retrieve results.
-
-        - If both `model` and `phecode` are None: return concatenated results across all models
-        for the *current* phecode set (same behavior as old `get_all_results()`).
-        - If `model` is provided: restrict to that model.
-        - If `phecode` is provided: restrict to that phecode ID.
-        - If phecode_ground_truth is given, is_known column added, i.e. ICD code is known for given Phecode
-
-        Returns an empty DataFrame if nothing is found.
+        Create an unsupervised ensemble from existing per-model runs and store it as a virtual model.
         """
-        # determine which models to read
-        if model is None:
-            models_to_use = list(self.models)
-            model_filter = None
-        else:
-            models_to_use = [model]
-            model_filter = model
+        models_to_use = list(self.models) if models is None else list(models)
 
-        # optional phecode resolution: allow passing the *string* label
-        phe_filter = None
-        if phecode is not None:
-            # if user passed exact ID, keep; else try to map from phecode_string
-            if (self.phecode_df is not None) and (
-                phecode not in set(self.phecode_df["phecode"])
-            ):
-                # try case-insensitive match on phecode_string
-                m = self.phecode_df[
-                    self.phecode_df["phecode_string"].str.lower()
-                    == str(phecode).lower()
-                ]
-                if not m.empty:
-                    phe_filter = m.iloc[0]["phecode"]
-                else:
-                    phe_filter = phecode  # keep as-is; may still match older runs
-            else:
-                phe_filter = phecode
-
-        frames: list[pd.DataFrame] = []
+        model_to_run_dir: Dict[str, str] = {}
         for m in models_to_use:
-            subdir = self._run_dir(m)
-            p = subdir / "similarity.parquet"
-            if not p.exists():
-                continue
-            df = pd.read_parquet(p)
-            # ensure we only return rows that belong to the model directory
-            if model_filter is not None:
-                df = df[df["model"] == model_filter]
-            if phe_filter is not None:
-                df = df[df["phecode"] == phe_filter]
-            if not df.empty:
-                frames.append(df)
+            subdir = self._run_dir(m) if run_hash is None else (self.output_dir / _sanitize_model_name(m) / "runs" / run_hash)
+            if (subdir / "similarity.parquet").exists():
+                model_to_run_dir[m] = str(subdir)
 
-        if not frames:
-            # standard column order if nothing found
-            return pd.DataFrame(
-                columns=[
-                    "model",
-                    "phecode",
-                    "phecode_string",
-                    "icd_code",
-                    "icd_string",
-                    "score",
-                    "rank",
-                    "n_icd",
-                    "n_phecodes",
-                    "created_at",
-                ]
-            )
+        if not model_to_run_dir:
+            raise RuntimeError("No input runs found for the requested models/method.")
 
-        results = pd.concat(frames, ignore_index=True)
-
-        # Add phecode labels to e.g. filter new icds for phecodes
-        if phecode_ground_truth is not None and not phecode_ground_truth.empty:
-            results = self._annotate_known_icds(results, phecode_ground_truth)  
-
-        return results
+        rhash = run_hash or self.phecode_hash
+        
+        _build_ensemble_from_runs(
+            output_dir=self.output_dir,
+            phecode_df=self.phecode_df,
+            icd_df=self.icd_df,
+            model_to_run_dir=model_to_run_dir,
+            method=method,
+            method_kwargs=method_kwargs,
+            name=name or f"ensemble:{method}",
+            run_hash=rhash,
+            overwrite=overwrite,
+        )
 
     def evaluate(
         self,
@@ -261,21 +236,30 @@ class Phecoder:
             for p, g in gold_df.groupby("phecode", sort=False)
         }
 
-        models_to_use = self.models if models is None else list(models)
+        if models is None:
+            found_models = _find_all_models(self.output_dir, (run_hash or self.phecode_hash))
+            models_to_use = list(found_models.keys())
+        else:
+            found_models = None
+            models_to_use = list(models)
 
         metrics_rows: list[Dict[str, Any]] = []
         curves_rows: list[Dict[str, Any]] = []
 
         # ---- per model ----
         for model_name in models_to_use:
-            safe_model = sanitize_model_name(model_name)
 
             # choose run dir
-            if run_hash is None:
+            if found_models is not None:
+                subdir = Path(found_models[model_name])
+            elif run_hash is None:
                 subdir = self._run_dir(model_name)
             else:
-                subdir = self.output_dir / safe_model / "runs" / run_hash
-
+                # be robust to unsanitized/sanitized names when a run_hash is supplied
+                subdir = _resolve_model_dir(self.output_dir, model_name, run_hash)
+                if subdir is None:
+                    continue
+            
             sim_path = subdir / "similarity.parquet"
             if not sim_path.exists():
                 continue
@@ -318,7 +302,7 @@ class Phecoder:
                 max_rank = int(sub["rank"].max())
                 k_eff = [max_rank if kk is None else kk for kk in k_values]
 
-                rows_for_k, curve_P, curve_R, K_star = rank_metrics_for_ks(
+                rows_for_k, curve_P, curve_R, K_star = _rank_metrics_for_ks(
                     sub[["icd_code", "rank"]], gold_set, k_eff
                 )
                 for r in rows_for_k:
@@ -356,85 +340,43 @@ class Phecoder:
 
         metrics_df.to_parquet(self.output_dir / 'metrics.parquet')
 
-    def list_runs(self, model: Optional[str] = None) -> pd.DataFrame:
+
+    def list_runs(
+        self,
+        models: Optional[Union[str, Iterable[str]]] = None,
+        include_ensembles: bool = True,
+    ) -> pd.DataFrame:
         """
-        List stored runs.
+        List stored runs (base models + optionally ensembles).
 
-        If `model` is provided, returns runs only for that model.
-        If `model` is None, returns runs for **all** models found under `output_dir`.
+        Parameters
+        ----------
+        models : str or iterable of str, optional
+            Restrict to a specific model or set of models.
+        include_ensembles : bool, default=True
+            Whether to include ensemble model folders (starting with 'ens').
 
-        Returns a DataFrame with columns:
-        ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
+        Returns
+        -------
+        DataFrame
+            Columns: ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
         """
-        runs_dirs = []
-
-        if model is None:
-            # scan all model dirs under output_dir that contain a 'runs' subdir
-            if self.output_dir.exists():
-                for d in sorted(self.output_dir.iterdir()):
-                    if d.is_dir():
-                        r = d / "runs"
-                        if r.is_dir():
-                            runs_dirs.append(r)
-        else:
-            safe = sanitize_model_name(model)
-            r = self.output_dir / safe / "runs"
-            if r.is_dir():
-                runs_dirs.append(r)
-
-        rows = []
-        for rdir in runs_dirs:
-            for rd in sorted(rdir.iterdir()):
-                if not rd.is_dir():
-                    continue
-                man = rd / "manifest.json"
-                created_at = None
-                top_k = None
-                try:
-                    if man.exists():
-                        m = json.loads(man.read_text())
-                        created_at = m.get("created_at")
-                        top_k = (m.get("search_kwargs") or {}).get("top_k")
-                except Exception:
-                    # keep row with whatever we have
-                    pass
-                rows.append(
-                    {
-                        "model": model,
-                        "run_hash": rd.name,
-                        "created_at": created_at,
-                        "top_k": top_k,
-                        "run_dir": str(rd),
-                    }
-                )
-
-        df = pd.DataFrame(
-            rows, columns=["model", "run_hash", "created_at", "top_k", "run_dir"]
+        return list_runs_utils(
+            output_dir=self.output_dir,
+            models=models,
+            include_ensembles=include_ensembles,
         )
-        if not df.empty:
-            # newest first; then model; then hash
-            df = df.sort_values(
-                ["created_at", "model", "run_hash"],
-                ascending=[False, True, True],
-                na_position="last",
-            )
-            df = df.reset_index(drop=True)
-        return df
 
-    def load_results_from_hash(self, model: str, run_hash: str) -> pd.DataFrame:
-        safe = sanitize_model_name(model)
-        p = self.output_dir / safe / "runs" / run_hash / "similarity.parquet"
-        return pd.read_parquet(p)
 
     # ───────────────────────── internal methods ────────────────────────
     def _run_one_model(self, model_name: str, overwrite: bool):
-        safe = sanitize_model_name(model_name)
+        safe = _sanitize_model_name(model_name)
         model_dir = self.output_dir / safe
-        ensure_dir(model_dir)
+        _ensure_dir(model_dir)
 
         # Determine ICD embedding base directory
         icd_base_dir = (self.icd_cache_dir / safe) if self.icd_cache_dir else model_dir
-        ensure_dir(icd_base_dir)
+        _ensure_dir(icd_base_dir)
 
         # ICD-level artifacts (shared per model)
         icd_index_path = icd_base_dir / "icd_index.parquet"
@@ -443,24 +385,41 @@ class Phecoder:
 
         # Run-specific artifacts (per phecode set)
         run_dir = model_dir / "runs" / self.phecode_hash
-        ensure_dir(run_dir)
+        _ensure_dir(run_dir)
         run_manifest_path = run_dir / "manifest.json"
         sim_path = run_dir / "similarity.parquet"
         phe_index_path = run_dir / "phecode_index.parquet"
         phe_embeddings_path = run_dir / "phecode_embeds.npz"
 
-        # Skip run entirely if similarity already computed and manifests match
-        if sim_path.exists() and run_manifest_path.exists() and not overwrite:
+        # Skip or raise based on manifest consistency
+        if sim_path.exists() and run_manifest_path.exists():
             with open(run_manifest_path) as f:
                 man = json.load(f)
-            if (
+
+            same_inputs = (
                 man.get("icd_fp") == self.icd_fp
                 and man.get("phecode_fp") == self.phecode_fp
-            ):
-                return
+            )
+
+            if same_inputs:
+                if not overwrite:
+                    # Reuse: nothing to do
+                    return
+                # Overwrite=True → rebuild anyway (fresh run)
+            else:
+                if not overwrite:
+                    reasons = []
+                    if man.get("icd_fp") != self.icd_fp:
+                        reasons.append("ICD fingerprint changed")
+                    if man.get("phecode_fp") != self.phecode_fp:
+                        reasons.append("Phecode fingerprint changed")
+                    raise RuntimeError(
+                        f"Existing run found at {run_dir} but inputs differ and overwrite=False.\n"
+                        f"Reasons: {', '.join(reasons)}"
+                    )
 
         # Build/load model
-        model = build_st_model(model_name, device=self.device)
+        model = _build_st_model(model_name, device=self.device)
 
         # ---------- ICD embeddings (shared per model) ----------
         enc_kwargs_eff = self._encode_kwargs_for_model(model_name)
@@ -501,7 +460,7 @@ class Phecoder:
                 need_build = True
 
         if need_build:
-            icd_vecs = encode_texts(
+            icd_vecs = _encode_texts(
                 model=model,
                 texts=self.icd_df["icd_string"].tolist(),
                 encode_kwargs=enc_kwargs_eff,
@@ -519,14 +478,14 @@ class Phecoder:
                         "icd_fp": self.icd_fp,
                         "storage_dtype": storage_tag,
                         "encode_kwargs": enc_kwargs_eff,
-                        "created_at": now_iso(),
+                        "created_at": _now(),
                     },
                     f,
                     indent=2,
                 )
 
         # ---------- Phecode embeddings (per run) ----------
-        phe_vecs = encode_texts(
+        phe_vecs = _encode_texts(
             model=model,
             texts=self.phecode_df["phecode_string"].tolist(),
             encode_kwargs=enc_kwargs_eff,
@@ -554,7 +513,7 @@ class Phecoder:
                 int(search_kwargs["top_k"]), icd_embs.shape[0]
             )
 
-        scores_list, idx_list = semantic_search_topk(
+        scores_list, idx_list = _semantic_search_topk(
             query=phe_embs,
             corpus=icd_embs,
             device=self.device,
@@ -580,7 +539,7 @@ class Phecoder:
                         rank,
                         n_icd,
                         n_phe,
-                        now_iso(),
+                        _now(),
                     )
                 )
         sim_df = pd.DataFrame(
@@ -611,7 +570,7 @@ class Phecoder:
             "device": self.device,
             "encode_kwargs": enc_kwargs_eff,
             "search_kwargs": search_kwargs,
-            "created_at": now_iso(),
+            "created_at": _now(),
             # Paths for reproducibility
             "icd_index_path": str(icd_index_path),
             "icd_embeddings_path": str(icd_embeddings_path),
@@ -625,7 +584,7 @@ class Phecoder:
         Merge global encode kwargs with per-model overrides.
         Never pass 'device' here; we control device at class level.
         """
-        per = clean_kwargs(self.per_model_encode_kwargs.get(model_name))
+        per = _clean_kwargs(self.per_model_encode_kwargs.get(model_name))
         merged = {**self.st_encode_kwargs, **per}
         merged.pop("device", None)
         # IMPORTANT: do not pass batch_size unless explicitly set by user
@@ -634,7 +593,7 @@ class Phecoder:
         return merged
 
     def _run_dir(self, model_name: str) -> Path:
-        safe = sanitize_model_name(model_name)
+        safe = _sanitize_model_name(model_name)
         return self.output_dir / safe / "runs" / self.phecode_hash
 
     @staticmethod
@@ -653,30 +612,5 @@ class Phecoder:
             rows = [(f"PHEC_{i + 1:04d}", s) for i, s in enumerate(phecodes)]
             return pd.DataFrame(rows, columns=["phecode", "phecode_string"])
         raise TypeError("phecodes must be DataFrame, str, or list[str]")
-
-    def _annotate_known_icds(
-        self,
-        results: pd.DataFrame,
-        phecode_ground_truth: pd.DataFrame,
-    ) -> pd.DataFrame:
-        """Add `is_known` (1 if ICD belongs to ground truth for phecode, else 0)."""
-        results = results.copy()
-        results["icd_code"] = results["icd_code"].astype(str)
-        phecode_ground_truth = phecode_ground_truth.copy()
-        phecode_ground_truth["icd_code"] = phecode_ground_truth["icd_code"].astype(str)
-
-        # fast membership via merge
-        merged = results.merge(
-            phecode_ground_truth[["phecode", "icd_code"]],
-            on=["phecode", "icd_code"],
-            how="left",
-            indicator=True,
-        )
-
-        # mark known/novel
-        merged["is_known"] = (merged["_merge"] == "both").astype("int8")
-        merged.drop(columns=["_merge"], inplace=True)
-
-        return merged
 
 

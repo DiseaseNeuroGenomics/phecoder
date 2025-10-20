@@ -58,7 +58,7 @@ def _recall_at_k(recall: np.ndarray, n_pos_total: int, k: int) -> float:
     return float(recall[k_eff - 1])
 
 
-def rank_metrics_for_ks(
+def _rank_metrics_for_ks(
     ranked_df: pd.DataFrame,
     gold_icds: Iterable[str],
     ks: list[Optional[int]],

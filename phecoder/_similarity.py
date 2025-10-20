@@ -5,7 +5,7 @@ import torch
 from sentence_transformers import util as st_util
 
 
-def semantic_search_topk(
+def _semantic_search_topk(
     query: np.ndarray,
     corpus: np.ndarray,
     device: str,

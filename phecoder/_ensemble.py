@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from .utils import _sanitize_model_name, _ensure_dir, _now_iso, _df_fingerprint
+from .utils import _sanitize_model_name, _ensure_dir, _now, _df_fingerprint
 
 # ───────────────────────────── helpers ───────────────────────────── #
 
@@ -179,7 +179,7 @@ def _apply_fuser(fuser, sub, method_kwargs):
 
 # ───────────────────────── orchestrator ─────────────────── #
 
-def build_ensemble_from_runs(
+def _build_ensemble_from_runs(
     *,
     output_dir,
     phecode_df: pd.DataFrame,
@@ -288,7 +288,7 @@ def build_ensemble_from_runs(
     rows = []
     n_icd = len(icd_lookup)
     n_phe = len(phe_lookup)
-    created_at = _now_iso()
+    created_at = _now()
 
     fuser = _FUSERS[method]
     for phe, sub in all_sim.groupby("phecode", sort=False):

@@ -6,14 +6,18 @@ If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA
 [PyTorch - Get Started](https://pytorch.org/get-started/locally/) for further details how to install PyTorch.
 
 
-***TBD*** 
 
 **Installing Phcoder**
 
- *As developer*
+ *As a developer*
 ```
 git clone https://github.com/03bennej/phecoder.git
 pip install pipx
 pipx install poetry
 pipx install poetry 
 ```
+
+ *As a user*
+ ```
+ ***TBD*** 
+ ```

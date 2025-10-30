@@ -10,6 +10,7 @@ If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA
 **Installing Phcoder**
 
  *As a developer*
+ Note : python >=3.10 is required
 ```
 git clone https://github.com/03bennej/phecoder.git
 pip install pipx

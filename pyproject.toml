@@ -11,15 +11,15 @@ authors = ["Jamie Bennett, David Burstein, Panos Roussos"]
 license = "Proprietary"
 
 keywords = [
-    "phecodes",
-    "phenotyping",
+    "Phenotyping",
+    "Phecodes",
     "ICD-9",
     "ICD-10",
     "Transformer Networks",
-    "semantic embedding",
+    "Semantic search",
     "PyTorch",
     "NLP",
-    "deep learning",
+    "Deep learning",
 ]
 
 classifiers = [
@@ -57,16 +57,12 @@ optional = true
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.30.1"
-
-[tool.poetry.group.docs.dependencies]
-sphinx = "^8.1.3"
-sphinx-autodoc-typehints = "^2.5.0"
-pydata-sphinx-theme = "^0.16.0"
-sphinx-copybutton = "^0.5.2"
-numpydoc = "^1.8.0"
-sphinx-autobuild = "^2024.10.3"
-sphinx-design = "^0.6.1"
-myst-nb = "^1.1.2"
+flake8 = "^7.3.0"
+flake8-bugbear = "^24.12.12"
+pytest = "^8.4.2"
+tox = "^4.30.2"
+pytest-cov = "^7.0.0"
+black = "^25.9.0"
 
 [tool.pytest.ini_options]
 addopts = "--cov=phecoder --cov-report xml --cov-append"

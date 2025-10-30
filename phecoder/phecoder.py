@@ -12,7 +12,12 @@ import gc
 
 from ._embed import _build_st_model, _encode_texts
 from ._similarity import _semantic_search_topk
-from ._evaluate import _rank_metrics_for_ks
+from ._evaluate import (
+    _normalize_k_values,
+    _vectorized_metrics_for_model,
+    _warn_missing_codes,
+)
+# from ._evaluate import _rank_metrics_for_ks
 from ._ensemble import _build_ensemble_from_runs
 from .utils import (
     _sanitize_model_name,
@@ -185,56 +190,27 @@ class Phecoder:
     ):
         """
         Rank-based evaluation per phecode (per model) against a gold long-table.
-
-        Changes vs. earlier version:
-        - Always drops phecodes missing from either side.
-        - Prints phecodes only in self.phecode_df vs only in gold.
-        - If k=None is passed, replaces with max rank for each phecode.
-        - Faster: minimal columns, prefilter, presort, single groupby pass.
         """
         # ---- validate & normalize gold ----
         req = {"phecode", "icd_code"}
         miss = req - set(phecode_ground_truth.columns)
         if miss:
             raise ValueError(f"phecode_ground_truth missing required columns: {miss}")
-        gold_df = (
-            phecode_ground_truth[["phecode", "icd_code"]]
-            .dropna()
-            .drop_duplicates()
-        )
+        gold_df = (phecode_ground_truth[["phecode", "icd_code"]]
+                .dropna()
+                .drop_duplicates())
+        gold_df["phecode"] = gold_df["phecode"].astype(str)
 
-        # normalize k(s)
-        if k is None:
-            k_values: list[Optional[int]] = [None]
-        elif isinstance(k, int):
-            k_values = [k]
-        else:
-            seen = set()
-            k_values = []
-            for kk in k:
-                kk_norm = None if kk is None else int(kk)
-                key = "None" if kk_norm is None else kk_norm
-                if key not in seen:
-                    seen.add(key)
-                    k_values.append(kk_norm)
+        k_values = _normalize_k_values(k)
 
-        # --- One-time reporting: set diffs between run's phecode_df and gold ---
         run_phecodes = set(self.phecode_df["phecode"].astype(str))
         gold_phecodes = set(gold_df["phecode"].astype(str))
-
-        only_in_run = sorted(run_phecodes - gold_phecodes)
+        only_in_run  = sorted(run_phecodes - gold_phecodes)
         only_in_gold = sorted(gold_phecodes - run_phecodes)
-
-        if len(only_in_run)>0:
+        if only_in_run:
             print(f"[evaluate] phecodes in phecode_df but NOT in phecode_ground_truth (count={len(only_in_run)}): {only_in_run}", flush=True)
-        if len(only_in_gold)>0:
+        if only_in_gold:
             print(f"[evaluate] phecodes in phecode_ground_truth but NOT in phecode_df (count={len(only_in_gold)}): {only_in_gold}", flush=True)
-
-        # Map gold phecode → set(ICDs)
-        gold_map: Dict[str, set] = {
-            str(p): set(g["icd_code"].tolist())
-            for p, g in gold_df.groupby("phecode", sort=False)
-        }
 
         if models is None:
             found_models = _find_all_models(self.output_dir, (run_hash or self.phecode_hash))
@@ -243,102 +219,65 @@ class Phecoder:
             found_models = None
             models_to_use = list(models)
 
-        metrics_rows: list[Dict[str, Any]] = []
-        curves_rows: list[Dict[str, Any]] = []
+        metrics_blocks, curves_blocks = [], []
+        icd_universe = set(self.icd_df["icd_code"])
 
         # ---- per model ----
-        for model_name in models_to_use:
-
-            # choose run dir
+        for i, model_name in enumerate(models_to_use):
             if found_models is not None:
                 subdir = Path(found_models[model_name])
             elif run_hash is None:
                 subdir = self._run_dir(model_name)
             else:
-                # be robust to unsanitized/sanitized names when a run_hash is supplied
                 subdir = _resolve_model_dir(self.output_dir, model_name, run_hash)
                 if subdir is None:
                     continue
-            
+
+            # parquet loading handled here
             sim_path = subdir / "similarity.parquet"
             if not sim_path.exists():
                 continue
 
-            # read only needed columns
-            sim = pd.read_parquet(sim_path, columns=["model", "phecode", "icd_code", "rank"])
-            sim = sim[sim["model"] == model_name]
+            sim = pd.read_parquet(
+                sim_path,
+                columns=["model", "phecode", "icd_code", "rank"],
+                engine="pyarrow",
+                filters=[("model", "=", model_name)],
+            )
             if sim.empty:
                 continue
 
-            # intersection of gold phecodes and available phecodes
-            available_phecodes = set(sim["phecode"].astype(str).unique())
-            target_phecodes = gold_phecodes & available_phecodes
-            if not target_phecodes:
+            available_phe = set(sim["phecode"].astype(str).unique())
+            target_phe    = gold_phecodes & available_phe
+            if not target_phe:
                 continue
+            sim = sim[sim["phecode"].astype(str).isin(target_phe)]
+            
+            # warn/save missing Phecodes and ICDs during first loop
+            if i==0:
+                missing_df = _warn_missing_codes(gold_df, icd_universe, target_phe)
+                if missing_df is not None:
+                    missing_df.to_csv(self.output_dir / "excluded_codes.csv", index=False)
 
-            sim = sim[sim["phecode"].astype(str).isin(target_phecodes)]
-            sim = sim.sort_values(["phecode", "rank", "icd_code"], kind="mergesort")
+            m_block, c_block = _vectorized_metrics_for_model(sim, gold_df, k_values, include_curves, model_name)
+            if not m_block.empty:
+                metrics_blocks.append(m_block)
+            if include_curves and c_block is not None and not c_block.empty:
+                curves_blocks.append(c_block)
 
-            # grouped evaluation
-            for phe, sub in sim.groupby("phecode", sort=False):
-                phe_str = str(phe)
-
-                # full gold set for this phecode
-                gold_set_full = gold_map.get(phe_str, set())
-
-                # restrict to ICDs present in icd_df
-                icd_universe = set(self.icd_df["icd_code"])
-                gold_set = gold_set_full & icd_universe
-
-                # warn if some relevant ICDs are missing from the phecode definition
-                missing = gold_set_full - icd_universe
-                if missing:
-                    print(
-                        f"[evaluate] {len(missing)} ground truth ICD codes for phecode {phe_str} "
-                        f"not in ICD dataframe and excluded: {sorted(list(missing))[:10]}{'...' if len(missing) > 10 else ''}",
-                        flush=True
-                    )
-
-                max_rank = int(sub["rank"].max())
-                k_eff = [max_rank if kk is None else kk for kk in k_values]
-
-                rows_for_k, curve_P, curve_R, K_star = _rank_metrics_for_ks(
-                    sub[["icd_code", "rank"]], gold_set, k_eff
-                )
-                for r in rows_for_k:
-                    metrics_rows.append({"model": model_name, "phecode": phe_str, **r})
-                if include_curves:
-                    curves_rows.append(
-                        {
-                            "model": model_name,
-                            "phecode": phe_str,
-                            "curve_precision": curve_P,
-                            "curve_recall": curve_R,
-                        }
-                    )
-
-        metrics_df = pd.DataFrame(
-            metrics_rows,
-            columns=[
-                "model",
-                "phecode",
-                "k",
-                "n_considered",
-                "n_gold_pos",
-                "AP@k",
-                "P@k",
-                "R@k",
-            ],
-        )
+        # ---- write outputs ----
+        if metrics_blocks:
+            metrics_df = pd.concat(metrics_blocks, ignore_index=True)
+        else:
+            metrics_df = pd.DataFrame(columns=["model","phecode","k","n_considered","n_gold_pos","AP@k","P@k","R@k"])
+        metrics_df.to_parquet(self.output_dir / "metrics.parquet", index=False)
 
         if include_curves:
-            curves_df = pd.DataFrame(
-                curves_rows,
-                columns=["model", "phecode", "curve_precision", "curve_recall"],
-            )
-            curves_df.to_parquet(self.output_dir / 'pr_curves.parquet')
-
-        metrics_df.to_parquet(self.output_dir / 'metrics.parquet')
+            if curves_blocks:
+                curves_df = pd.concat(curves_blocks, ignore_index=True)
+            else:
+                curves_df = pd.DataFrame(columns=["model","phecode","curve_precision","curve_recall"])
+            curves_df.to_parquet(self.output_dir / "pr_curves.parquet", index=False)
 
 
     def list_runs(

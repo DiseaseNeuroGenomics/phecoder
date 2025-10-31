@@ -45,15 +45,15 @@ def _clean_kwargs(d: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             out.pop(k)
     return out
 
-def _resolve_model_dir(output_dir: Path, model: str, run_hash: str) -> Optional[Path]:
+def _resolve_model_dir(dir: Path, model: str, run_hash: str) -> Optional[Path]:
     """
     Return the run directory for `model` and `run_hash`, trying both the raw name
     and its sanitized folder name. None if not found.
     """
     safe = _sanitize_model_name(model)
     candidates = [
-        output_dir / model / "runs" / run_hash,
-        output_dir / safe / "runs" / run_hash,
+        dir / model / "runs" / run_hash,
+        dir / safe / "runs" / run_hash,
     ]
     for p in candidates:
         if p.exists():
@@ -82,21 +82,21 @@ def _resolve_model_key(found: Dict[str, Path], query: str) -> Optional[str]:
 
 
 def _find_all_models(
-    output_dir: Path,
+    dir: Path,
     run_hash: str,
     include_ensembles: bool = True,
 ) -> Dict[str, Path]:
     """
     Find all models (and optionally ensembles) that have
-    similarity.parquet under: output_dir/*/runs/<run_hash>.
+    similarity.parquet under: dir/*/runs/<run_hash>.
 
     Returns {model_name -> run_dir Path}.
     """
     found: Dict[str, Path] = {}
-    if not output_dir.exists():
+    if not dir.exists():
         return found
 
-    for d in sorted(output_dir.iterdir()):
+    for d in sorted(dir.iterdir()):
         if not d.is_dir():
             continue
         rdir = d / "runs" / run_hash
@@ -138,7 +138,7 @@ def _find_all_models(
 
 
 def _iter_run_dirs(
-    output_dir: Path,
+    dir: Path,
     models: Optional[Union[str, Iterable[str]]] = None,
 ) -> Iterator[Tuple[str, str, Path]]:
     """
@@ -146,19 +146,19 @@ def _iter_run_dirs(
     If `models` is provided (str or iterable of str), only iterate those models' runs.
     Matching is done against both raw and sanitized folder names.
     """
-    if not output_dir.exists():
+    if not dir.exists():
         return
 
     # Build the set of model directories to scan
     if models is None:
-        model_dirs = [d for d in sorted(output_dir.iterdir()) if d.is_dir()]
+        model_dirs = [d for d in sorted(dir.iterdir()) if d.is_dir()]
     else:
         requested = [models] if isinstance(models, str) else list(models)
         cand_paths = []
         seen = set()
         for m in requested:
-            raw = output_dir / str(m)
-            safe = output_dir / _sanitize_model_name(str(m))
+            raw = dir / str(m)
+            safe = dir / _sanitize_model_name(str(m))
             for p in (raw, safe):
                 if p.is_dir():
                     key = str(p.resolve())
@@ -227,7 +227,7 @@ def _annotate_known_icds(
 
 
 def list_runs(
-    output_dir: Path | str,
+    dir: Path | str,
     models: Optional[Union[str, Iterable[str]]] = None,
     include_ensembles: bool = True,
 ) -> pd.DataFrame:
@@ -236,10 +236,10 @@ def list_runs(
 
     Returns columns: ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
     """
-    output_dir = Path(output_dir)
+    dir = Path(dir)
 
     rows = []
-    for model_name, run_hash, run_dir in _iter_run_dirs(output_dir, models=models):
+    for model_name, run_hash, run_dir in _iter_run_dirs(dir, models=models):
         # filter out ensembles if requested (support both "ens:*" and "ensemble:*")
         if not include_ensembles:
             mlow = str(model_name).lower()
@@ -279,51 +279,62 @@ def list_runs(
 
 
 def load_results(
-    output_dir: Path | str,
-    phecode_hash: str | None = None,
-    phecode_df: pd.DataFrame | None = None,
-    models: Union[str, Iterable[str], None] = None,   # ← accept many
-    phecode: str | None = None,
+    dir: Path | str,
+    phecode: Union[str, Iterable[str], None] = None,
+    phecode_string: Union[str, Iterable[str], None] = None,
+    models: Union[str, Iterable[str], None] = None,
     phecode_ground_truth: pd.DataFrame | None = None,
     include_ensembles: bool = False,
+    run_hash: str | None = None,
 ) -> pd.DataFrame:
     """
-    Load existing similarity.parquet outputs for one or more models, optionally
-    annotating with a gold standard ICD→Phecode map.
+    Load existing similarity.parquet outputs for one or more models,
+    optionally filtering by phecode(s) or phecode_string(s), and annotating
+    with a gold standard ICD→Phecode map.
     """
-    output_dir = Path(output_dir)
+    dir = Path(dir)
 
-    # pick a run hash if not provided
-    if phecode_hash is None:
-        runs_df = list_runs(output_dir, include_ensembles=include_ensembles)
+    # --- normalize input types ---
+    if isinstance(phecode, str):
+        phecodes = [phecode]
+    elif phecode is not None:
+        phecodes = list(phecode)
+    else:
+        phecodes = None
+
+    if isinstance(phecode_string, str):
+        phecode_strings = [phecode_string.lower()]
+    elif phecode_string is not None:
+        phecode_strings = [s.lower() for s in phecode_string]
+    else:
+        phecode_strings = None
+
+    # --- pick a run hash if not provided ---
+    if run_hash is None:
+        runs_df = list_runs(dir, include_ensembles=include_ensembles)
         if runs_df.empty:
-            raise FileNotFoundError(f"No runs found under {output_dir}.")
-        phecode_hash = runs_df.iloc[0]["run_hash"]
+            raise FileNotFoundError(f"No runs found under {dir}.")
+        run_hash = runs_df.iloc[0]["run_hash"]
 
-    # decide which models to read
+    # --- decide which models to read ---
     found_models: Optional[Dict[str, Path]]
     if models is None:
-        found_models = _find_all_models(
-            output_dir, phecode_hash, include_ensembles=include_ensembles
-        )
+        found_models = _find_all_models(dir, run_hash, include_ensembles=include_ensembles)
         models_to_use = list(found_models.keys())
     else:
-        # normalize to list[str]
-        if isinstance(models, str):
-            models_to_use = [models]
-        else:
-            models_to_use = list(models)  # Iterable[str]
-        found_models = None  # ignore include_ensembles when explicit models are given
+        models_to_use = [models] if isinstance(models, str) else list(models)
+        found_models = None
 
     frames = []
     for m in models_to_use:
+        # resolve model directory
         if found_models is not None:
             key = m if m in found_models else _resolve_model_key(found_models, m)
             if key is None:
                 continue
             subdir = Path(found_models[key])
         else:
-            subdir = _resolve_model_dir(output_dir, m, phecode_hash)
+            subdir = _resolve_model_dir(dir, m, run_hash)
             if subdir is None:
                 continue
 
@@ -333,17 +344,12 @@ def load_results(
 
         df = pd.read_parquet(f)
 
-        # optional phecode string→ID mapping
-        if phecode_df is not None and phecode is not None:
-            if str(phecode) not in set(phecode_df["phecode"].astype(str)):
-                match = phecode_df[
-                    phecode_df["phecode_string"].str.lower() == str(phecode).lower()
-                ]
-                if not match.empty:
-                    phecode = match.iloc[0]["phecode"]
+        # --- apply filters ---
+        if phecodes is not None:
+            df = df[df["phecode"].astype(str).isin(map(str, phecodes))]
 
-        if phecode is not None:
-            df = df[df["phecode"] == phecode]
+        if phecode_strings is not None:
+            df = df[df["phecode_string"].str.lower().isin(phecode_strings)]
 
         if not df.empty:
             frames.append(df)

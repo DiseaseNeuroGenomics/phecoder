@@ -33,24 +33,11 @@ import pandas as pd
 models = [
     "FremyCompany/BioLORD-2023",  # model trained specifically on clinical sentences and biomedical concepts.
     "infly/inf-retriever-v1", # best model on MTEB leaderboard (Medical) for information retrieval
-    "sentence-transformers/all-MiniLM-L6-v2", # original SentenceTransformer model: best across all datasets tested. "all" models trained on all data
-    "sentence-transformers/sentence-t5-xxl",  # original SentenceTransformer model: best for sentence embedding task. just trained on sentences data
-    "sentence-transformers/multi-qa-mpnet-base-dot-v1", # original SentenceTransformer model: best for semantic search task. just trained on sentences data
-    "sentence-transformers/all-MiniLM-L12-v2", # original SentenceTransformer model: best smaller model across both tasks
-    "NeuML/pubmedbert-base-embeddings",  # trained on PubMed
-    "Qwen/Qwen3-Embedding-8B", # best model on MTEB leaderboard for semantic text similarity
-    "Qwen/Qwen3-Embedding-4B", # 2nd best model on MTEB leaderboard for semantic text similarity
 ]
 
 ensemble_methods = [
     ("rrf",        {"k": 60},   "ens:rrf60"),
     ("mean_rank",  {},          "ens:meanrank"),
-    ("median_rank",{},          "ens:medianrank"),
-    ("rra",        {},          "ens:rra"),
-    ("zsum",       {},          "ens:zsum"),
-    ("combsum",    {},          "ens:combsum"),
-    ("combmnz",    {},          "ens:combmnz"),
-    ("fisher",     {},          "ens:fisher"),
 ]
 
 phecode_examples = [

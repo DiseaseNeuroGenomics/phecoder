@@ -3,3 +3,4 @@ embeddings/*
 hf-home/*
 minerva/*
 .venv/*
+results/*

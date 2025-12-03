@@ -16,12 +16,12 @@ SAVE_DIR      = os.path.join(MAIN_DIR, "data/processed/phecodeX")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # ---- Load data --------------------------------------------------------------
-icd_outpat_count_df = pd.read_csv(PATH_OUTPAT_COUNT, sep="|")
-icd_outpat_countpat_df = pd.read_csv(PATH_OUTPAT_COUNTPAT, sep="|")
-icd_inpat_count_df = pd.read_csv(PATH_INPAT_COUNT, sep="|")
-icd_inpat_countpat_df = pd.read_csv(PATH_INPAT_COUNTPAT, sep="|")
-phecode_info_df = pd.read_csv(PATH_INFO)                     # master phecode metadata
-phecode_icd_df = pd.read_csv(PATH_UNROLLED)                 # contains all ICD↔phecode associations
+icd_outpat_count_df = pd.read_csv(PATH_OUTPAT_COUNT, sep="|", dtype={"ICDCode": "string", "CodeType": "string"})
+icd_outpat_countpat_df = pd.read_csv(PATH_OUTPAT_COUNTPAT, sep="|", dtype={"ICDCode": "string", "CodeType": "string"})
+icd_inpat_count_df = pd.read_csv(PATH_INPAT_COUNT, sep="|", dtype={"ICDCode": "string", "CodeType": "string"})
+icd_inpat_countpat_df = pd.read_csv(PATH_INPAT_COUNTPAT, sep="|", dtype={"ICDCode": "string", "CodeType": "string"})
+phecode_info_df = pd.read_csv(PATH_INFO, dtype={"ICDCode": "string", "phecode": "string"})  # master phecode metadata
+phecode_icd_df = pd.read_csv(PATH_UNROLLED, dtype={"ICD": "string", "phecode": "string"})  # contains all ICD↔phecode associations
 
 keys = ['ICDCode', 'CodeType']
 
@@ -95,7 +95,8 @@ phecode_icd_df = phecode_icd_df.rename(
 }
 )
 
-breakpoint()
+# Strip trailing '.' from icd dataframes. This is not present in PhecodeX and will cause downstream merge issues
+icd_info_df["icd_code"] = icd_info_df["icd_code"].str.rstrip(".")
 
 # Save
 icd_info_df.to_parquet(os.path.join(SAVE_DIR, "icd_info.parquet"), index=False)

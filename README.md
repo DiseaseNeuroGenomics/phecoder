@@ -91,8 +91,14 @@ for method, kwargs, name in ensemble_methods:
 # Data Format
 ICD DataFrame (icd_df):
 
-icd: ICD code (e.g., "E11.9", "250.00")
-icd_string: Description text
-flag: ICD version (9 or 10)
+icd: ICD code (e.g., "E11.9", "250.00") <br>
+icd_string: Description text <br>
+flag: ICD version (9 or 10) <br>
+
+__FAQ__: For FAQ and troubleshooting, please see the FAQ here. <TBD>
+
+__Support__: If you have any outstanding questions not addressed by the docs or FAQ, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu
+
+__Citing our Paper__: If you use our software, please cite our preprint on medRxiv: Bennett et al. <TBD>
 
 

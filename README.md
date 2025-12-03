@@ -53,9 +53,17 @@ ensemble_methods = [
     ("fisher",     {},          "ens:fisher"),
 ]
 
+phecode_examples = [
+    'MB_293',
+    'MB_287.1',
+    'MB_286.1',
+    'MB_280.2',
+    'MB_280.11',
+    'MB_296'
+]
+
 # Load your data
 icd_df = pd.read_parquet("icd_info.parquet")
-phecode_icd_lookup = pd.read_parquet("phecode_icd_pairs.parquet")
 
 # Initialize
 pc = Phecoder(
@@ -75,7 +83,4 @@ for method, kwargs, name in ensemble_methods:
         method_kwargs=kwargs,
         name=name
     )
-
-# evaluate
-pc.evaluate(phecode_ground_truth=phecode_icd_lookup_example, include_curves=True)
 ```

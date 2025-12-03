@@ -20,5 +20,5 @@ pipx install poetry
 
  *As a user*
  ```
- ***TBD*** 
+pip install phecoder
  ```

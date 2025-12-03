@@ -9,7 +9,7 @@ If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA
 
 
 
-**Installing Phcoder**
+**Installing Phecoder**
 
  *As a developer* <br>
  Note : python >=3.10 is required

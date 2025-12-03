@@ -24,3 +24,30 @@ pipx install poetry
  ```
 pip install phecoder
  ```
+# Quick Start
+
+```
+from phecoder import Phecoder
+import pandas as pd
+
+# Load your data
+icd_df = pd.read_parquet("icd_info.parquet")
+phecode_icd_lookup = pd.read_parquet("phecode_icd_pairs.parquet")
+
+# Initialize
+pc = Phecoder(
+    icd_df=icd_df,
+    phecodes=phecode_examples,
+    models=["all-MiniLM-L6-v2", "FremyCompany/BioLORD-2023"],
+    output_dir="results/",
+)
+
+# Run semantic search
+pc.run()
+
+# Build ensemble
+pc.build_ensemble(method="rrf", method_kwargs={"k": 60})
+
+# Evaluate
+pc.evaluate(phecode_ground_truth=phecode_icd_lookup)
+```

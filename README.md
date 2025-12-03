@@ -30,6 +30,20 @@ pip install phecoder
 from phecoder import Phecoder
 import pandas as pd
 
+# Encoding options
+st_encode_kwargs = {
+    "normalize_embeddings": True,
+    "trust_remote_code": True,
+    "show_progress_bar": True,
+}
+
+# Per-model customization
+per_model_encode_kwargs = {
+    "Alibaba-NLP/gte-Qwen2-7B-instruct": {
+        "prompt_name": "query"
+    }
+}
+
 models = [
     "FremyCompany/BioLORD-2023",  # model trained specifically on clinical sentences and biomedical concepts.
     "infly/inf-retriever-v1", # best model on MTEB leaderboard (Medical) for information retrieval
@@ -58,6 +72,8 @@ pc = Phecoder(
     phecodes=phecode_examples,
     models=models,
     output_dir="results/",
+    st_encode_kwargs=st_encode_kwargs,
+    per_model_encode_kwargs=per_model_encode_kwargs,
 )
 
 # Run semantic search
@@ -71,3 +87,12 @@ for method, kwargs, name in ensemble_methods:
         name=name
     )
 ```
+
+# Data Format
+ICD DataFrame (icd_df):
+
+icd: ICD code (e.g., "E11.9", "250.00")
+icd_string: Description text
+flag: ICD version (9 or 10)
+
+

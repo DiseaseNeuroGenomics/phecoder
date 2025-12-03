@@ -30,6 +30,29 @@ pip install phecoder
 from phecoder import Phecoder
 import pandas as pd
 
+models = [
+    "FremyCompany/BioLORD-2023",  # model trained specifically on clinical sentences and biomedical concepts.
+    "infly/inf-retriever-v1", # best model on MTEB leaderboard (Medical) for information retrieval
+    "sentence-transformers/all-MiniLM-L6-v2", # original SentenceTransformer model: best across all datasets tested. "all" models trained on all data
+    "sentence-transformers/sentence-t5-xxl",  # original SentenceTransformer model: best for sentence embedding task. just trained on sentences data
+    "sentence-transformers/multi-qa-mpnet-base-dot-v1", # original SentenceTransformer model: best for semantic search task. just trained on sentences data
+    "sentence-transformers/all-MiniLM-L12-v2", # original SentenceTransformer model: best smaller model across both tasks
+    "NeuML/pubmedbert-base-embeddings",  # trained on PubMed
+    "Qwen/Qwen3-Embedding-8B", # best model on MTEB leaderboard for semantic text similarity
+    "Qwen/Qwen3-Embedding-4B", # 2nd best model on MTEB leaderboard for semantic text similarity
+]
+
+ensemble_methods = [
+    ("rrf",        {"k": 60},   "ens:rrf60"),
+    ("mean_rank",  {},          "ens:meanrank"),
+    ("median_rank",{},          "ens:medianrank"),
+    ("rra",        {},          "ens:rra"),
+    ("zsum",       {},          "ens:zsum"),
+    ("combsum",    {},          "ens:combsum"),
+    ("combmnz",    {},          "ens:combmnz"),
+    ("fisher",     {},          "ens:fisher"),
+]
+
 # Load your data
 icd_df = pd.read_parquet("icd_info.parquet")
 phecode_icd_lookup = pd.read_parquet("phecode_icd_pairs.parquet")
@@ -38,16 +61,21 @@ phecode_icd_lookup = pd.read_parquet("phecode_icd_pairs.parquet")
 pc = Phecoder(
     icd_df=icd_df,
     phecodes=phecode_examples,
-    models=["all-MiniLM-L6-v2", "FremyCompany/BioLORD-2023"],
+    models=models,
     output_dir="results/",
 )
 
 # Run semantic search
 pc.run()
 
-# Build ensemble
-pc.build_ensemble(method="rrf", method_kwargs={"k": 60})
+# build ensembles
+for method, kwargs, name in ensemble_methods:
+    pc.build_ensemble(
+        method=method,
+        method_kwargs=kwargs,
+        name=name
+    )
 
-# Evaluate
-pc.evaluate(phecode_ground_truth=phecode_icd_lookup)
+# evaluate
+pc.evaluate(phecode_ground_truth=phecode_icd_lookup_example, include_curves=True)
 ```

@@ -4,3 +4,4 @@ hf-home/*
 minerva/*
 .venv/*
 results/*
+**/__pycache__/*

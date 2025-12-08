@@ -1,9 +1,24 @@
 SHELL := /bin/bash
 
 cpu_queue?=premium
-time?=12:00
+time?=36:00
 memory?=6000
 cores?=4
+
+#### Submit CPU job (Minerva)
+submit-cpu:
+	bsub -J "$(script) $(args)" \
+		 -P acc_roussp01a \
+		 -q $(cpu_queue) \
+		 -n $(cores) \
+		 -W $(time) \
+		 -R span[hosts=1] \
+		 -R rusage[mem=$(memory)] \
+		 -o ./minerva/logs/%J.stdout \
+		 -eo ./minerva/logs/%J.stderr \
+		 -L /bin/bash \
+		 ./minerva/cpu_job.sh "$(script)" $(args)
+
 
 #### Submit GPU job (Minerva)
 gpu?=a10080g

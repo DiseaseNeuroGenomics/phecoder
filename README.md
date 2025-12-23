@@ -104,7 +104,7 @@ from phecoder.utils import load_results
 results = load_results(dir=output_dir)
 ```
 
-__Support__: If you have any outstanding questions not addressed by the docs or FAQ, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
+__Support__: If you have any questions, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
 
 __Citations__: If you use Phecoder in research, please cite our preprint on medRxiv: Bennett et al. <TBD>
 

@@ -1,104 +1,111 @@
-# Phecoder: Semantic ICD code ranking for efficient Phecode curation.
+# Phecoder: semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks
 
-PheCoder maps clinical phenotypes (Phecodes) to ICD-9/ICD-10 diagnosis codes using transformer-based semantic embeddings. It evaluates multiple embedding models and ensemble methods to find the most relevant diagnosis codes for each phenotype.
+## Overview
 
-**PyTorch with CUDA**
+Phecoder maps clinical phenotypes (Phecodes) to diagnosis (ICD) codes using pretrained text embedding models. It evaluates multiple embedding models and ensemble methods to find the most relevant diagnosis codes for each phenotype.
 
-If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA Version. Follow
-[PyTorch - Get Started](https://pytorch.org/get-started/locally/) for further details how to install PyTorch.
+<p align="center">
+  <img src="figures/fig1.png" alt="Figure description" width="600">
+</p>
 
+## Installing Phecoder
+Note : python >=3.10 is required
 
-
-**Installing Phecoder**
-
- *As a developer* <br>
- Note : python >=3.10 is required
-```
-git clone https://github.com/03bennej/phecoder.git
-pip install pipx
-pipx install poetry
-pipx install poetry 
-```
-
- *As a user*
+### As a user
  ```
-pip install phecoder
+python -m venv venv
+source venv/bin/activate
+pip install git+https://github.com/DiseaseNeuroGenomics/phecoder.git
  ```
+
+#### PyTorch with CUDA
+
+If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA Version **before** installing Phecoder. Follow
+[PyTorch - Get Started](https://pytorch.org/get-started/locally/) for further details on how to install PyTorch.
+
+### As a developer
+Phecoder is developed using Poetry. Follow [Poetry - Installation](https://python-poetry.org/docs/#installation) for further details on how to install Poetry. Then,
+```
+git clone https://github.com/DiseaseNeuroGenomics/phecoder.git
+poetry install
+```
+
 # Quick Start
 
+Import modules and set Hugging Face model cache:
 ```
-from phecoder import Phecoder
+import os
+HUGGINGFACE_PATH = "./hf-home"
+os.environ["HF_HOME"] = HUGGINGFACE_PATH
 import pandas as pd
+from phecoder import Phecoder
+```
 
-# Encoding options
-st_encode_kwargs = {
-    "normalize_embeddings": True,
-    "trust_remote_code": True,
-    "show_progress_bar": True,
+Define output directories:
+```
+output_dir = "./results/example"  # where ranked ICDs will be saved
+icd_cache_dir = "./results/icd_embeddings_cache"  # where icd embeddings will be saved to avoid recomputing
+```
+
+Load ICD text descriptions:
+```
+icd_df = pd.read_parquet(
+    "./example_data/icd_info.parquet"
+)
+```
+
+Choose top-k threshold:
+```
+st_search_kwargs = {
+    "top_k": 100,  # do not truncate ICD lists
 }
+```
 
-# Per-model customization
-per_model_encode_kwargs = {
-    "Alibaba-NLP/gte-Qwen2-7B-instruct": {
-        "prompt_name": "query"
-    }
-}
-
+Define list of embedding models from Hugging face:
+```
 models = [
-    "FremyCompany/BioLORD-2023",  # model trained specifically on clinical sentences and biomedical concepts.
-    "infly/inf-retriever-v1", # best model on MTEB leaderboard (Medical) for information retrieval
+    "FremyCompany/BioLORD-2023",
+    "infly/inf-retriever-v1",
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "sentence-transformers/sentence-t5-xxl",
+    "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    "sentence-transformers/all-MiniLM-L12-v2",
+    "NeuML/pubmedbert-base-embeddings",
+    "Qwen/Qwen3-Embedding-8B",
+    "Qwen/Qwen3-Embedding-4B",
 ]
+```
 
-ensemble_methods = [
-    ("rrf",        {"k": 60},   "ens:rrf60"),
-    ("mean_rank",  {},          "ens:meanrank"),
-]
+Phenotype text description of interest:
+```
+phecode_query = "Eating disorders"
+```
 
-phecode_examples = [
-    'MB_293',
-    'MB_287.1',
-    'MB_286.1',
-    'MB_280.2',
-    'MB_280.11',
-    'MB_296'
-]
-
-# Load your data
-icd_df = pd.read_parquet("icd_info.parquet")
-
-# Initialize
+Initialize and run Phecoder
+```
 pc = Phecoder(
     icd_df=icd_df,
-    phecodes=phecode_examples,
+    phecodes=phecode_query,
     models=models,
-    output_dir="results/",
-    st_encode_kwargs=st_encode_kwargs,
-    per_model_encode_kwargs=per_model_encode_kwargs,
+    output_dir=output_dir,
+    icd_cache_dir=icd_cache_dir,
+    st_search_kwargs=st_search_kwargs,
 )
 
-# Run semantic search
-pc.run()
+pc.run(overwrite=False)  # run semantic search per model
 
-# build ensembles
-for method, kwargs, name in ensemble_methods:
-    pc.build_ensemble(
-        method=method,
-        method_kwargs=kwargs,
-        name=name
-    )
+pc.build_ensemble(method="zsum")  # build ensemble with Z-sum method
 ```
 
-# Data Format
-ICD DataFrame (icd_df):
+Load results into memory:
+```
+from phecoder.utils import load_results
 
-icd: ICD code (e.g., "E11.9", "250.00") <br>
-icd_string: Description text <br>
-flag: ICD version (9 or 10) <br>
+results = load_results(dir=output_dir)
+```
 
-__FAQ__: For FAQ and troubleshooting, please see the FAQ here. <TBD>
+__Support__: If you have any outstanding questions not addressed by the docs or FAQ, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
 
-__Support__: If you have any outstanding questions not addressed by the docs or FAQ, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu
-
-__Citing our Paper__: If you use our software, please cite our preprint on medRxiv: Bennett et al. <TBD>
+__Citations__: If you use Phecoder in research, please cite our preprint on medRxiv: Bennett et al. <TBD>
 
 

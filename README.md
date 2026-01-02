@@ -189,6 +189,11 @@ for phecode in results['phecode_string'].unique():
 - **Pre-download models** with `pc.download_models()` for batch jobs to separate download time from computation
 
 ---
+## See also
+For more information on how the ICD file was creted, see the [ICD Data Preparation](./ICDDataPreparationREADME.md).
+**For best results, use the actual ICD codes and descriptions from your biobank/EHR dataset.** 
+The semantic matching works best when it operates on the same code descriptions that exist in your data. If your EHR uses specific phrasings or truncated descriptions, provide those exact strings rather than standard reference descriptions. This ensures the ranked results directly correspond to codes available in your dataset.
+
 
 
 __Support__: If you have any questions, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.

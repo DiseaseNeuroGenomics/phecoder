@@ -179,30 +179,6 @@ for phecode in results['phecode_string'].unique():
 
 ---
 
-## Output Structure
-```
-output_dir/
-├── model_name/
-│   ├── icd_embeds.npz              # Cached ICD embeddings (reusable)
-│   ├── icd_index.parquet           # ICD codes index
-│   ├── icd_manifest.json           # ICD embedding metadata
-│   └── runs/
-│       └── run_hash/
-│           ├── similarity.parquet       # Ranked ICD results
-│           ├── phecode_embeds.npz       # Phecode embeddings
-│           ├── phecode_index.parquet    # Phecode index
-│           └── manifest.json            # Run metadata
-├── ens_rrf60/                      # Ensemble results
-│   └── runs/
-│       └── run_hash/
-│           └── similarity.parquet
-├── metrics.parquet                 # Evaluation metrics (if evaluated)
-└── pr_curves.parquet              # Precision-recall curves (if evaluated)
-```
-
----
-
-
 ## Tips
 
 - **First run is slower** - Models download and embeddings are computed

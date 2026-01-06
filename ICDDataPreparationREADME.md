@@ -6,4 +6,4 @@ The example ICD data file is constructed in the following manner:
    *  **ICD-9-CM** codes are 3-6 characters in length with the first character being numeric or alpha (E or V) and rest of the characters being numeric. Use of decimal after 3 charcaters except E codes where the decimal is between third and fourth digit.
    *  **ICD-10-CM** codes are 3 -7 characters in lenght with the first character being alpha (all letters except U are used), character 2 being numeric and rest are alpha or numeric. Use of decimal after 3 characters.
   
-### *Note* : *The pipeline works best when you are using the actual ICD codes and descriptions that exist within the biobank/EHR data set*
+### *Note* : *Biobanks don't follow formatting 100% of the time. Different EHR systems (Epic, Cerner, VA) often have slightly different text descriptions for identical ICD codes. The pipeline works best when you are using the actual ICD codes and descriptions that exist within the biobank/EHR data set*

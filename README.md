@@ -59,14 +59,13 @@ icd_df = pd.read_parquet("icd_codes.parquet")
 icd_df = pd.read_csv("icd_codes.csv")
 ```
 
-**Example format:**
-```
-Essential columns -
-icd_code    icd_string
-E11.9       Type 2 diabetes mellitus without complications
-I10         Essential (primary) hypertension
-J45.909     Unspecified asthma, uncomplicated
-```
+**Example format (essential columns):**
+
+| icd_code     | icd_string |
+|:-------------|:-------------|
+| E11.9        | Type 2 diabetes mellitus without complications | 
+| I10          | Essential (primary) hypertension |
+| J45.909      | Unspecified asthma, uncomplicated |
 
 ### 4. Define Phenotype(s)
 ```python
@@ -201,4 +200,6 @@ The semantic matching works best when it operates on the same code descriptions 
 
 __Support__: If you have any questions, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
 
-__Citations__: If you use Phecoder in research, please cite our preprint on medRxiv: Bennett et al. <TBD>
+__Citations__: If you use Phecoder in research, please cite our preprint on medRxiv:
+
+> [Phecoder: semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks. Jamie J. R. Bennett, Simone Tomasi, Sonali Gupta, VA Million Veteran Program, Georgios Voloudakis, Panos Roussos, David Burstein (2026). doi: https://doi.org/10.64898/2026.01.08.26343725. ](https://www.medrxiv.org/content/10.64898/2026.01.08.26343725v1)

@@ -200,6 +200,7 @@ The semantic matching works best when it operates on the same code descriptions 
 
 __Support__: If you have any questions, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
 
-__Citations__: If you use Phecoder in research, please cite our preprint on medRxiv:
+## Citations 
+If you use Phecoder in research, please cite our preprint on medRxiv:
 
 > **Phecoder: semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks.** Jamie J. R. Bennett, Simone Tomasi, Sonali Gupta, VA Million Veteran Program, Georgios Voloudakis, Panos Roussos, David Burstein (2026). doi: [https://doi.org/10.64898/2026.01.08.26343725](https://www.medrxiv.org/content/10.64898/2026.01.08.26343725v1).

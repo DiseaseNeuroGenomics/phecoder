@@ -32,80 +32,173 @@ poetry install
 
 # Quick Start
 
-Import modules and set Hugging Face model cache:
-```
+## Basic Usage
+
+### 1. Setup and Import
+```python
 import os
-HUGGINGFACE_PATH = "./hf-home"
-os.environ["HF_HOME"] = HUGGINGFACE_PATH
 import pandas as pd
 from phecoder import Phecoder
+
+# Set Hugging Face cache directory (optional but recommended)
+os.environ["HF_HOME"] = "./hf-home"
 ```
 
-Define output directories:
-```
-output_dir = "./results/example"  # where ranked ICDs will be saved
-icd_cache_dir = "./results/icd_embeddings_cache"  # where icd embeddings will be saved to avoid recomputing
-```
-
-Load ICD text descriptions:
-```
-icd_df = pd.read_parquet(
-    "./example_data/icd_info.parquet"
-)
+### 2. Define Directories
+```python
+output_dir = "./results"              # Results saved here
+icd_cache_dir = "./icd_cache"         # ICD embeddings cached here (optional, reusable across runs)
 ```
 
-Choose top-k threshold:
-```
-st_search_kwargs = {
-    "top_k": 100,  # do not truncate ICD lists
-}
+### 3. Load ICD Codes
+
+Your ICD data must have columns: `icd_code` and `icd_string`
+```python
+icd_df = pd.read_parquet("icd_codes.parquet")
+# OR
+icd_df = pd.read_csv("icd_codes.csv")
 ```
 
-Define list of embedding models from Hugging face:
+**Example format:**
 ```
+Essential columns -
+icd_code    icd_string
+E11.9       Type 2 diabetes mellitus without complications
+I10         Essential (primary) hypertension
+J45.909     Unspecified asthma, uncomplicated
+```
+
+### 4. Define Phenotype(s)
+```python
+# Single phenotype
+phenotype = "Eating disorders"
+
+# OR multiple phenotypes
+phenotypes = ["Eating disorders", "Type 2 diabetes", "Hypertension"]
+
+# OR DataFrame with phecode and description
+phecode_df = pd.DataFrame({
+    'phecode': ['250.2', '401.1'],
+    'phecode_string': ['Type 2 diabetes', 'Hypertension']
+})
+```
+
+### 5. Choose Models
+```python
+# Light model (fast, ~80MB)
+models = ["sentence-transformers/all-MiniLM-L6-v2"]
+
+# OR clinical-trained model (better for medical text, ~440MB)
+models = ["FremyCompany/BioLORD-2023"]
+
+# OR multiple models (for ensemble)
 models = [
-    "FremyCompany/BioLORD-2023",
-    "infly/inf-retriever-v1",
     "sentence-transformers/all-MiniLM-L6-v2",
-    "sentence-transformers/sentence-t5-xxl",
-    "sentence-transformers/multi-qa-mpnet-base-dot-v1",
-    "sentence-transformers/all-MiniLM-L12-v2",
-    "NeuML/pubmedbert-base-embeddings",
-    "Qwen/Qwen3-Embedding-8B",
-    "Qwen/Qwen3-Embedding-4B",
+    "FremyCompany/BioLORD-2023",
+    "NeuML/pubmedbert-base-embeddings"
 ]
 ```
 
-Phenotype text description of interest:
-```
-phecode_query = "Eating disorders"
-```
-
-Initialize and run Phecoder
-```
+### 6. Initialize Phecoder
+```python
 pc = Phecoder(
     icd_df=icd_df,
-    phecodes=phecode_query,
+    phecodes=phenotype,                  # or phenotypes or phecode_df
     models=models,
     output_dir=output_dir,
-    icd_cache_dir=icd_cache_dir,
-    st_search_kwargs=st_search_kwargs,
+    icd_cache_dir=icd_cache_dir,         # Optional: cache ICD embeddings for reuse
+    st_search_kwargs=st_search_kwargs      # Return top 100 ICD codes per phenotype
+)
+```
+
+### 7. Run Pipeline
+```python
+# Option 1: Run directly (models auto-download if needed)
+pc.run()
+
+# Option 2: Pre-download models, then run (useful for batch jobs)
+pc.download_models()  # Optional: explicitly download models first
+pc.run()
+
+# Build ensemble (combines multiple models using reciprocal rank fusion)
+pc.build_ensemble(
+    method="rrf",
+    method_kwargs={"k": 60},
+    name="ens:rrf60"
+)
+```
+
+### 8. Load Results
+```python
+# Load all results (individual models + ensemble)
+results = pc.load_results(include_ensembles=True)
+
+# Load ensemble results
+ensemble_results = pc.load_results(
+    models=['ens:rrf60'],
+    include_ensembles=True
+)
+```
+
+---
+
+## Complete Workflow Example
+```python
+import os
+import pandas as pd
+from phecoder import Phecoder
+
+# Setup
+os.environ["HF_HOME"] = "./hf-home"
+
+# Load ICD data
+icd_df = pd.read_parquet("icd_codes.parquet")
+
+# Initialize
+pc = Phecoder(
+    icd_df=icd_df,
+    phecodes=["Suicidal ideation", "Depression", "Anxiety"],
+    models=["sentence-transformers/all-MiniLM-L6-v2", 
+            "FremyCompany/BioLORD-2023"],
+    output_dir="./results",
+    icd_cache_dir="./icd_cache"
 )
 
-pc.run(overwrite=False)  # run semantic search per model
+# Run pipeline
+pc.run()
+pc.build_ensemble(method="rrf", method_kwargs={"k": 60}, name="ens:rrf60")
 
-pc.build_ensemble(method="zsum")  # build ensemble with Z-sum method
+# Load and save ensemble results
+results = pc.load_results(models=['ens:rrf60'], include_ensembles=True)
+
+for phecode in results['phecode_string'].unique():
+    data = results[results['phecode_string'] == phecode]
+    filename = phecode.replace(" ", "_")
+    data.to_csv(f"{filename}_top5000.csv", index=False)
 ```
 
-Load results into memory:
-```
-from phecoder.utils import load_results
+---
 
-results = load_results(dir=output_dir)
-```
+## Tips
+
+- **First run is slower** - Models download and embeddings are computed
+- **Subsequent runs are fast** - ICD embeddings are cached and reused
+- **Use `icd_cache_dir`** to share ICD embeddings across multiple projects
+- **Start with light models** for testing, then use clinical models for production
+- **Ensembles typically outperform** individual models
+- **Pre-download models** with `pc.download_models()` for batch jobs to separate download time from computation
+
+---
+## See also
+For more information on how the ICD file was creted, see the [ICD Data Preparation](./ICDDataPreparationREADME.md).
+
+
+**For best results, use the actual ICD codes and descriptions from your biobank/EHR dataset.** 
+
+The semantic matching works best when it operates on the same code descriptions that exist in your data. If your EHR uses specific phrasings or truncated descriptions, provide those exact strings rather than standard reference descriptions. This ensures the ranked results directly correspond to codes available in your dataset.
+
+
 
 __Support__: If you have any questions, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
 
 __Citations__: If you use Phecoder in research, please cite our preprint on medRxiv: Bennett et al. <TBD>
-
-

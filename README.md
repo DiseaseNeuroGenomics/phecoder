@@ -132,7 +132,7 @@ pc.build_ensemble(
 # Load all results (individual models + ensemble)
 results = pc.load_results(include_ensembles=True)
 
-# Load ensemble results
+# Load ensemble results only
 ensemble_results = pc.load_results(
     models=['ens:rrf60'],
     include_ensembles=True
@@ -169,11 +169,6 @@ pc.build_ensemble(method="rrf", method_kwargs={"k": 60}, name="ens:rrf60")
 
 # Load and save ensemble results
 results = pc.load_results(models=['ens:rrf60'], include_ensembles=True)
-
-for phecode in results['phecode_string'].unique():
-    data = results[results['phecode_string'] == phecode]
-    filename = phecode.replace(" ", "_")
-    data.to_csv(f"{filename}_top5000.csv", index=False)
 ```
 
 ---

@@ -154,7 +154,7 @@ class Phecoder:
         models: Union[str, Iterable[str], None] = None,
         phecode: str | None = None,
         phecode_ground_truth: pd.DataFrame | None = None,
-        include_ensembles: bool = False,
+        include_ensembles: bool = True,
     ) -> pd.DataFrame:
         return load_results_utils(
             output_dir=self.output_dir,

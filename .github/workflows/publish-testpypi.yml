@@ -1,0 +1,37 @@
+name: Publish to TestPyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: python -m pip install --upgrade pip poetry
+
+      - name: Install project (ensures required plugins)
+        run: poetry install --no-interaction --no-root
+
+      - name: Build
+        run: poetry build
+
+      - name: Publish to TestPyPI (token)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}

@@ -32,7 +32,36 @@ poetry install
 
 # Quick Start
 
-## Basic Usage
+## Workflow example with default settings
+The default settings in Phecoder allow you to use the best ensemble as per [our study](https://www.medrxiv.org/content/10.64898/2026.01.08.26343725v1).
+```python
+import os
+import pandas as pd
+from phecoder import Phecoder
+
+# Setup
+os.environ["HF_HOME"] = "./hf-home"
+
+# Load ICD data
+icd_df = pd.read_parquet("example-data/icd_info.parquet")
+
+# Initialize
+pc = Phecoder(
+    icd_df=icd_df,
+    phecodes=["Suicidal ideation", "Depression", "Anxiety"],
+    output_dir="./results",
+    icd_cache_dir="./icd_cache"
+)
+
+# Run pipeline
+pc.run()
+pc.build_ensemble()
+
+# Load results into dataframe
+results = pc.load_results()
+```
+
+## A more detailed example
 
 ### 1. Setup and Import
 ```python
@@ -54,9 +83,7 @@ icd_cache_dir = "./icd_cache"         # ICD embeddings cached here (optional, re
 
 Your ICD data must have columns: `icd_code` and `icd_string`
 ```python
-icd_df = pd.read_parquet("icd_codes.parquet")
-# OR
-icd_df = pd.read_csv("icd_codes.csv")
+icd_df = pd.read_parquet("example-data/icd_info.parquet")
 ```
 
 **Example format (essential columns):**
@@ -96,17 +123,22 @@ models = [
     "FremyCompany/BioLORD-2023",
     "NeuML/pubmedbert-base-embeddings"
 ]
+# OR use a preset
+models = "preset:best_single"  # best single model
+models = "preset:best_ensemble"  # best set of models for ensemble (same as default)
 ```
 
 ### 6. Initialize Phecoder
 ```python
 pc = Phecoder(
     icd_df=icd_df,
-    phecodes=phenotype,                  # or phenotypes or phecode_df
+    phecodes=phenotype,                  # string, list of strings, or dataframe with "phecode" column
     models=models,
     output_dir=output_dir,
     icd_cache_dir=icd_cache_dir,         # Optional: cache ICD embeddings for reuse
-    st_search_kwargs=st_search_kwargs      # Return top 100 ICD codes per phenotype
+    st_search_kwargs={
+    "top_k": 100,
+    }      # Return top 100 ICD codes per phenotype
 )
 ```
 
@@ -141,36 +173,6 @@ ensemble_results = pc.load_results(
 
 ---
 
-## Complete Workflow Example
-```python
-import os
-import pandas as pd
-from phecoder import Phecoder
-
-# Setup
-os.environ["HF_HOME"] = "./hf-home"
-
-# Load ICD data
-icd_df = pd.read_parquet("icd_codes.parquet")
-
-# Initialize
-pc = Phecoder(
-    icd_df=icd_df,
-    phecodes=["Suicidal ideation", "Depression", "Anxiety"],
-    models=["sentence-transformers/all-MiniLM-L6-v2", 
-            "FremyCompany/BioLORD-2023"],
-    output_dir="./results",
-    icd_cache_dir="./icd_cache"
-)
-
-# Run pipeline
-pc.run()
-pc.build_ensemble(method="rrf", method_kwargs={"k": 60}, name="ens:rrf60")
-
-# Load and save ensemble results
-results = pc.load_results(models=['ens:rrf60'], include_ensembles=True)
-```
-
 ---
 
 ## Tips
@@ -179,12 +181,12 @@ results = pc.load_results(models=['ens:rrf60'], include_ensembles=True)
 - **Subsequent runs are fast** - ICD embeddings are cached and reused
 - **Use `icd_cache_dir`** to share ICD embeddings across multiple projects
 - **Start with light models** for testing, then use clinical models for production
-- **Ensembles typically outperform** individual models
+- **Ensembles typically outperform individual models**
 - **Pre-download models** with `pc.download_models()` for batch jobs to separate download time from computation
 
 ---
 ## See also
-For more information on how the ICD file was creted, see the [ICD Data Preparation](./ICDDataPreparationREADME.md).
+For more information on how the ICD file was created, see the [ICD Data Preparation](./ICDDataPreparationREADME.md).
 
 
 **For best results, use the actual ICD codes and descriptions from your biobank/EHR dataset.** 

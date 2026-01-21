@@ -15,7 +15,7 @@ Note : python >=3.10 is required
  ```
 python -m venv venv
 source venv/bin/activate
-pip install git+https://github.com/DiseaseNeuroGenomics/phecoder.git
+pip install phecoder
  ```
 
 #### PyTorch with CUDA

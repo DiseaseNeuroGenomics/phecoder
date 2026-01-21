@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 import json
 import hashlib
 from pathlib import Path
@@ -17,7 +16,7 @@ from ._evaluate import (
     _vectorized_metrics_for_model,
     _warn_missing_codes,
 )
-# from ._evaluate import _rank_metrics_for_ks
+
 from ._ensemble import _build_ensemble_from_runs
 from .utils import (
     _sanitize_model_name,
@@ -26,10 +25,11 @@ from .utils import (
     _now,
     _clean_kwargs,
     _find_all_models,
-    _resolve_model_dir
+    _resolve_model_dir,
 )
 from .utils import list_runs as list_runs_utils
 from .utils import load_results as load_results_utils
+
 
 class Phecoder:
     """
@@ -114,10 +114,10 @@ class Phecoder:
 
     def download_models(self):
         """
-        Downloads models, nothing else. 
+        Downloads models, nothing else.
         """
         for model_name in self.models:
-            snapshot_download(repo_id=model_name)     
+            snapshot_download(repo_id=model_name)
 
     def run(self, overwrite: bool = False):
         """
@@ -131,7 +131,7 @@ class Phecoder:
         models: Union[str, Iterable[str], None] = None,
         phecode: str | None = None,
         phecode_ground_truth: pd.DataFrame | None = None,
-        include_ensembles: bool = False, 
+        include_ensembles: bool = False,
     ) -> pd.DataFrame:
         return load_results_utils(
             output_dir=self.output_dir,
@@ -140,7 +140,7 @@ class Phecoder:
             models=models,
             phecode=phecode,
             phecode_ground_truth=phecode_ground_truth,
-            include_ensembles=include_ensembles
+            include_ensembles=include_ensembles,
         )
 
     def build_ensemble(
@@ -159,7 +159,11 @@ class Phecoder:
 
         model_to_run_dir: Dict[str, str] = {}
         for m in models_to_use:
-            subdir = self._run_dir(m) if run_hash is None else (self.output_dir / _sanitize_model_name(m) / "runs" / run_hash)
+            subdir = (
+                self._run_dir(m)
+                if run_hash is None
+                else (self.output_dir / _sanitize_model_name(m) / "runs" / run_hash)
+            )
             if (subdir / "similarity.parquet").exists():
                 model_to_run_dir[m] = str(subdir)
 
@@ -167,7 +171,7 @@ class Phecoder:
             raise RuntimeError("No input runs found for the requested models/method.")
 
         rhash = run_hash or self.phecode_hash
-        
+
         _build_ensemble_from_runs(
             output_dir=self.output_dir,
             phecode_df=self.phecode_df,
@@ -196,24 +200,32 @@ class Phecoder:
         miss = req - set(phecode_ground_truth.columns)
         if miss:
             raise ValueError(f"phecode_ground_truth missing required columns: {miss}")
-        gold_df = (phecode_ground_truth[["phecode", "icd_code"]]
-                .dropna()
-                .drop_duplicates())
+        gold_df = (
+            phecode_ground_truth[["phecode", "icd_code"]].dropna().drop_duplicates()
+        )
         gold_df["phecode"] = gold_df["phecode"].astype(str)
 
         k_values = _normalize_k_values(k)
 
         run_phecodes = set(self.phecode_df["phecode"].astype(str))
         gold_phecodes = set(gold_df["phecode"].astype(str))
-        only_in_run  = sorted(run_phecodes - gold_phecodes)
+        only_in_run = sorted(run_phecodes - gold_phecodes)
         only_in_gold = sorted(gold_phecodes - run_phecodes)
         if only_in_run:
-            print(f"[evaluate] phecodes in phecode_df but NOT in phecode_ground_truth (count={len(only_in_run)}): {only_in_run}", flush=True)
+            print(
+                f"[evaluate] phecodes in phecode_df but NOT in phecode_ground_truth (count={len(only_in_run)}): {only_in_run}",
+                flush=True,
+            )
         if only_in_gold:
-            print(f"[evaluate] phecodes in phecode_ground_truth but NOT in phecode_df (count={len(only_in_gold)}): {only_in_gold}", flush=True)
+            print(
+                f"[evaluate] phecodes in phecode_ground_truth but NOT in phecode_df (count={len(only_in_gold)}): {only_in_gold}",
+                flush=True,
+            )
 
         if models is None:
-            found_models = _find_all_models(self.output_dir, (run_hash or self.phecode_hash))
+            found_models = _find_all_models(
+                self.output_dir, (run_hash or self.phecode_hash)
+            )
             models_to_use = list(found_models.keys())
         else:
             found_models = None
@@ -248,18 +260,22 @@ class Phecoder:
                 continue
 
             available_phe = set(sim["phecode"].astype(str).unique())
-            target_phe    = gold_phecodes & available_phe
+            target_phe = gold_phecodes & available_phe
             if not target_phe:
                 continue
             sim = sim[sim["phecode"].astype(str).isin(target_phe)]
-            
+
             # warn/save missing Phecodes and ICDs during first loop
-            if i==0:
+            if i == 0:
                 missing_df = _warn_missing_codes(gold_df, icd_universe, target_phe)
                 if missing_df is not None:
-                    missing_df.to_csv(self.output_dir / "excluded_codes.csv", index=False)
+                    missing_df.to_csv(
+                        self.output_dir / "excluded_codes.csv", index=False
+                    )
 
-            m_block, c_block = _vectorized_metrics_for_model(sim, gold_df, k_values, include_curves, model_name)
+            m_block, c_block = _vectorized_metrics_for_model(
+                sim, gold_df, k_values, include_curves, model_name
+            )
             if not m_block.empty:
                 metrics_blocks.append(m_block)
             if include_curves and c_block is not None and not c_block.empty:
@@ -269,16 +285,28 @@ class Phecoder:
         if metrics_blocks:
             metrics_df = pd.concat(metrics_blocks, ignore_index=True)
         else:
-            metrics_df = pd.DataFrame(columns=["model","phecode","k","n_considered","n_gold_pos","AP@k","P@k","R@k"])
+            metrics_df = pd.DataFrame(
+                columns=[
+                    "model",
+                    "phecode",
+                    "k",
+                    "n_considered",
+                    "n_gold_pos",
+                    "AP@k",
+                    "P@k",
+                    "R@k",
+                ]
+            )
         metrics_df.to_parquet(self.output_dir / "metrics.parquet", index=False)
 
         if include_curves:
             if curves_blocks:
                 curves_df = pd.concat(curves_blocks, ignore_index=True)
             else:
-                curves_df = pd.DataFrame(columns=["model","phecode","curve_precision","curve_recall"])
+                curves_df = pd.DataFrame(
+                    columns=["model", "phecode", "curve_precision", "curve_recall"]
+                )
             curves_df.to_parquet(self.output_dir / "pr_curves.parquet", index=False)
-
 
     def list_runs(
         self,
@@ -305,7 +333,6 @@ class Phecoder:
             models=models,
             include_ensembles=include_ensembles,
         )
-
 
     # ───────────────────────── internal methods ────────────────────────
     def _run_one_model(self, model_name: str, overwrite: bool):
@@ -448,9 +475,7 @@ class Phecoder:
         if "top_k" not in search_kwargs or search_kwargs["top_k"] is None:
             search_kwargs["top_k"] = min(1000, icd_embs.shape[0])
         else:
-            search_kwargs["top_k"] = min(
-                int(search_kwargs["top_k"]), icd_embs.shape[0]
-            )
+            search_kwargs["top_k"] = min(int(search_kwargs["top_k"]), icd_embs.shape[0])
 
         scores_list, idx_list = _semantic_search_topk(
             query=phe_embs,
@@ -551,5 +576,3 @@ class Phecoder:
             rows = [(f"PHEC_{i + 1:04d}", s) for i, s in enumerate(phecodes)]
             return pd.DataFrame(rows, columns=["phecode", "phecode_string"])
         raise TypeError("phecodes must be DataFrame, str, or list[str]")
-
-

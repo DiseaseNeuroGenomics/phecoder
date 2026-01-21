@@ -45,6 +45,7 @@ def _clean_kwargs(d: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             out.pop(k)
     return out
 
+
 def _resolve_model_dir(dir: Path, model: str, run_hash: str) -> Optional[Path]:
     """
     Return the run directory for `model` and `run_hash`, trying both the raw name
@@ -201,6 +202,7 @@ def _iter_run_dirs(
 
             yield (str(model_name), rd.name, rd)
 
+
 def _annotate_known_icds(
     results: pd.DataFrame,
     phecode_ground_truth: pd.DataFrame,
@@ -268,7 +270,9 @@ def list_runs(
             }
         )
 
-    df = pd.DataFrame(rows, columns=["model", "run_hash", "created_at", "top_k", "run_dir"])
+    df = pd.DataFrame(
+        rows, columns=["model", "run_hash", "created_at", "top_k", "run_dir"]
+    )
     if not df.empty:
         df = df.sort_values(
             ["created_at", "model", "run_hash"],
@@ -319,7 +323,9 @@ def load_results(
     # --- decide which models to read ---
     found_models: Optional[Dict[str, Path]]
     if models is None:
-        found_models = _find_all_models(dir, run_hash, include_ensembles=include_ensembles)
+        found_models = _find_all_models(
+            dir, run_hash, include_ensembles=include_ensembles
+        )
         models_to_use = list(found_models.keys())
     else:
         models_to_use = [models] if isinstance(models, str) else list(models)
@@ -357,8 +363,16 @@ def load_results(
     if not frames:
         return pd.DataFrame(
             columns=[
-                "model", "phecode", "phecode_string", "icd_code", "icd_string",
-                "score", "rank", "n_icd", "n_phecodes", "created_at"
+                "model",
+                "phecode",
+                "phecode_string",
+                "icd_code",
+                "icd_string",
+                "score",
+                "rank",
+                "n_icd",
+                "n_phecodes",
+                "created_at",
             ]
         )
 

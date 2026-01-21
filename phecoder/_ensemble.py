@@ -11,11 +11,15 @@ from .utils import _sanitize_model_name, _ensure_dir, _now, _df_fingerprint
 
 # ───────────────────────────── helpers ───────────────────────────── #
 
-def _align_weights(columns: Sequence[str], weights: Optional[Dict[str, float]]) -> np.ndarray:
+
+def _align_weights(
+    columns: Sequence[str], weights: Optional[Dict[str, float]]
+) -> np.ndarray:
     """Return a weight vector aligned to `columns` (model names)."""
     if not weights:
         return np.ones(len(columns), dtype=float)
     return np.array([float(weights.get(m, 1.0)) for m in columns], dtype=float)
+
 
 def _minmax_norm_array(x: np.ndarray) -> np.ndarray:
     """Column-wise min-max normalization [0,1]."""
@@ -24,6 +28,7 @@ def _minmax_norm_array(x: np.ndarray) -> np.ndarray:
     rng = np.where(xmax > xmin, xmax - xmin, np.nan)
     return (x - xmin) / rng
 
+
 def _z_norm_array(x: np.ndarray) -> np.ndarray:
     """Column-wise z-score normalization."""
     mu = np.nanmean(x, axis=0)
@@ -31,7 +36,10 @@ def _z_norm_array(x: np.ndarray) -> np.ndarray:
     sd = np.where(sd > 0, sd, np.nan)
     return (x - mu) / sd
 
-def _wide_matrix(sub: pd.DataFrame, value: str, agg: str = "min") -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+def _wide_matrix(
+    sub: pd.DataFrame, value: str, agg: str = "min"
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Vectorized pivot: return (rows, cols, matrix).
     value : 'rank' or 'score'
@@ -57,10 +65,13 @@ def _wide_matrix(sub: pd.DataFrame, value: str, agg: str = "min") -> Tuple[np.nd
 
     return rows, cols, mat
 
+
 def _order_desc(score_vec: np.ndarray) -> np.ndarray:
     return np.argsort(-score_vec)
 
+
 # ───────────────────────────── core fusers ───────────────────────────── #
+
 
 def _rrf_fuse(sub: pd.DataFrame, k: int = 60) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, r = _wide_matrix(sub, "rank", agg="min")
@@ -70,7 +81,10 @@ def _rrf_fuse(sub: pd.DataFrame, k: int = 60) -> Tuple[np.ndarray, np.ndarray]:
     order = _order_desc(fused)
     return rows[order], fused[order]
 
-def _mean_rank_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None) -> Tuple[np.ndarray, np.ndarray]:
+
+def _mean_rank_fuse(
+    sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None
+) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, r = _wide_matrix(sub, "rank", agg="min")
     max_rank = sub["rank"].max()
     r = np.where(np.isnan(r), max_rank + 1000, r)
@@ -80,12 +94,14 @@ def _mean_rank_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] = Non
     order = _order_desc(score)
     return rows[order], score[order]
 
+
 def _median_rank_fuse(sub: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, r = _wide_matrix(sub, "rank", agg="min")
     med = np.nanmedian(r, axis=1)
     score = -med
     order = _order_desc(score)
     return rows[order], score[order]
+
 
 def _rra_fuse(sub: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, r = _wide_matrix(sub, "rank", agg="min")
@@ -99,6 +115,7 @@ def _rra_fuse(sub: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
     zsum = np.nansum(Z, axis=1) / denom
     order = _order_desc(zsum)
     return rows[order], zsum[order]
+
 
 def _fisher_fuse(sub: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, s = _wide_matrix(sub, "score", agg="max")
@@ -119,7 +136,10 @@ def _fisher_fuse(sub: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
     order = _order_desc(stat)
     return rows[order], stat[order]
 
-def _zsum_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None, average: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+
+def _zsum_fuse(
+    sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None, average: bool = False
+) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, s = _wide_matrix(sub, "score", agg="max")
     z = _z_norm_array(s)
     w = _align_weights(cols, weights)
@@ -132,7 +152,10 @@ def _zsum_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None, av
     order = _order_desc(zsum)
     return rows[order], zsum[order]
 
-def _combsum_minmax_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None, average: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+
+def _combsum_minmax_fuse(
+    sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None, average: bool = False
+) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, s = _wide_matrix(sub, "score", agg="max")
     normed = _minmax_norm_array(s)
     w = _align_weights(cols, weights)
@@ -145,7 +168,10 @@ def _combsum_minmax_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] 
     order = _order_desc(fused)
     return rows[order], fused[order]
 
-def _combmnz_minmax_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None) -> Tuple[np.ndarray, np.ndarray]:
+
+def _combmnz_minmax_fuse(
+    sub: pd.DataFrame, weights: Optional[Dict[str, float]] = None
+) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols, s = _wide_matrix(sub, "score", agg="max")
     normed = _minmax_norm_array(s)
     w = _align_weights(cols, weights)
@@ -154,6 +180,7 @@ def _combmnz_minmax_fuse(sub: pd.DataFrame, weights: Optional[Dict[str, float]] 
     fused = sums * nnz
     order = _order_desc(fused)
     return rows[order], fused[order]
+
 
 # Registry
 _FUSERS: Dict[str, Callable[..., Tuple[np.ndarray, np.ndarray]]] = {
@@ -170,6 +197,7 @@ _FUSERS: Dict[str, Callable[..., Tuple[np.ndarray, np.ndarray]]] = {
     "fisher": _fisher_fuse,
 }
 
+
 def _apply_fuser(fuser, sub, method_kwargs):
     try:
         return fuser(sub, **method_kwargs)
@@ -178,6 +206,7 @@ def _apply_fuser(fuser, sub, method_kwargs):
 
 
 # ───────────────────────── orchestrator ─────────────────── #
+
 
 def _build_ensemble_from_runs(
     *,
@@ -236,8 +265,10 @@ def _build_ensemble_from_runs(
             manifest.get("method") == method
             and (manifest.get("method_kwargs") or {}) == (method_kwargs or {})
             and set(manifest.get("source_models") or []) == set(model_to_run_dir.keys())
-            and manifest.get("icd_fp") == _df_fingerprint(icd_df[["icd_code", "icd_string"]])
-            and manifest.get("phecode_fp") == _df_fingerprint(phecode_df[["phecode", "phecode_string"]])
+            and manifest.get("icd_fp")
+            == _df_fingerprint(icd_df[["icd_code", "icd_string"]])
+            and manifest.get("phecode_fp")
+            == _df_fingerprint(phecode_df[["phecode", "phecode_string"]])
         )
 
         if same_inputs:
@@ -258,7 +289,9 @@ def _build_ensemble_from_runs(
         parquet_file = Path(rdir) / "similarity.parquet"
         if not parquet_file.exists():
             continue
-        df = pd.read_parquet(parquet_file, columns=["phecode", "icd_code", "score", "rank"])
+        df = pd.read_parquet(
+            parquet_file, columns=["phecode", "icd_code", "score", "rank"]
+        )
         df["model"] = m
         dfs.append(df)
 
@@ -275,12 +308,14 @@ def _build_ensemble_from_runs(
 
     # Lookups for labels
     icd_lookup = (
-        icd_df[["icd_code", "icd_string"]].copy()
+        icd_df[["icd_code", "icd_string"]]
+        .copy()
         .assign(icd_code=lambda d: d["icd_code"].astype(str))
         .set_index("icd_code")
     )
     phe_lookup = (
-        phecode_df[["phecode", "phecode_string"]].copy()
+        phecode_df[["phecode", "phecode_string"]]
+        .copy()
         .assign(phecode=lambda d: d["phecode"].astype(str))
         .set_index("phecode")
     )
@@ -302,33 +337,52 @@ def _build_ensemble_from_runs(
         phe_row = phe_lookup.loc[str(phe)]
         for rank, (icd, s) in enumerate(zip(icds_sorted, scores_sorted), start=1):
             icd_row = icd_lookup.loc[icd]
-            rows.append((
-                ens_name,
-                str(phe),
-                phe_row.phecode_string,
-                icd,
-                icd_row.icd_string,
-                float(s),
-                rank,
-                n_icd,
-                n_phe,
-                created_at,
-            ))
+            rows.append(
+                (
+                    ens_name,
+                    str(phe),
+                    phe_row.phecode_string,
+                    icd,
+                    icd_row.icd_string,
+                    float(s),
+                    rank,
+                    n_icd,
+                    n_phe,
+                    created_at,
+                )
+            )
 
-    ens_df = pd.DataFrame(rows, columns=[
-        "model","phecode","phecode_string","icd_code","icd_string",
-        "score","rank","n_icd","n_phecodes","created_at"
-    ])
+    ens_df = pd.DataFrame(
+        rows,
+        columns=[
+            "model",
+            "phecode",
+            "phecode_string",
+            "icd_code",
+            "icd_string",
+            "score",
+            "rank",
+            "n_icd",
+            "n_phecodes",
+            "created_at",
+        ],
+    )
     ens_df.to_parquet(sim_path, index=False)
 
     # Manifest
     with open(manifest_path, "w") as f:
-        json.dump({
-            "model_name": ens_name,
-            "source_models": list(model_to_run_dir.keys()),
-            "method": method,
-            "method_kwargs": method_kwargs,
-            "icd_fp": _df_fingerprint(icd_df[["icd_code","icd_string"]]),
-            "phecode_fp": _df_fingerprint(phecode_df[["phecode","phecode_string"]]),
-            "created_at": created_at,
-        }, f, indent=2)
+        json.dump(
+            {
+                "model_name": ens_name,
+                "source_models": list(model_to_run_dir.keys()),
+                "method": method,
+                "method_kwargs": method_kwargs,
+                "icd_fp": _df_fingerprint(icd_df[["icd_code", "icd_string"]]),
+                "phecode_fp": _df_fingerprint(
+                    phecode_df[["phecode", "phecode_string"]]
+                ),
+                "created_at": created_at,
+            },
+            f,
+            indent=2,
+        )

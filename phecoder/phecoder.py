@@ -29,6 +29,12 @@ from .utils import (
 )
 from .utils import list_runs as list_runs_utils
 from .utils import load_results as load_results_utils
+from ._defaults import (
+    MODEL_PRESETS,
+    DEFAULT_MODEL_PRESET,
+    DEFAULT_ENSEMBLE,
+    DEFAULT_ENSEMBLE_KWARGS,
+)
 
 
 class Phecoder:
@@ -58,8 +64,8 @@ class Phecoder:
         self,
         icd_df: pd.DataFrame,
         phecodes: Union[pd.DataFrame, str, List[str]],
-        models: Union[str, List[str]],
         output_dir: str,
+        models: Union[str, List[str]] = None,
         icd_cache_dir: Optional[str] = None,
         device: Optional[str] = None,
         dtype: str = "float16",
@@ -77,8 +83,25 @@ class Phecoder:
         # Normalize phecodes
         self.phecode_df = self._normalize_phecodes(phecodes)
 
-        # Models
-        self.models = [models] if isinstance(models, str) else list(models)
+        # Models + preset per-model kwargs
+        preset_pm: Dict[str, Dict[str, Any]] = {}
+
+        if models is None:
+            preset = MODEL_PRESETS[DEFAULT_MODEL_PRESET]
+            self.models = list(preset["models"])
+            preset_pm = dict(preset["per_model_encode_kwargs"])
+        elif isinstance(models, str) and models in MODEL_PRESETS:
+            preset = MODEL_PRESETS[models]
+            self.models = list(preset["models"])
+            preset_pm = dict(preset["per_model_encode_kwargs"])
+        else:
+            self.models = [models] if isinstance(models, str) else list(models)
+
+        if not self.models:
+            raise ValueError("models cannot be empty")
+
+        # per-model overrides: preset first, then user overrides
+        self.per_model_encode_kwargs = {**preset_pm, **(per_model_encode_kwargs or {})}
 
         # Paths / env
         self.output_dir = Path(output_dir)
@@ -146,7 +169,7 @@ class Phecoder:
     def build_ensemble(
         self,
         models: Optional[list[str]] = None,
-        method: str = "rrf",
+        method: str = "default",
         method_kwargs: Optional[Dict[str, Any]] = None,
         name: Optional[str] = None,
         run_hash: Optional[str] = None,
@@ -155,6 +178,11 @@ class Phecoder:
         """
         Create an unsupervised ensemble from existing per-model runs and store it as a virtual model.
         """
+
+        if isinstance(method, str) and method.lower() == "default":
+            method = DEFAULT_ENSEMBLE
+            method_kwargs = DEFAULT_ENSEMBLE_KWARGS
+
         models_to_use = list(self.models) if models is None else list(models)
 
         model_to_run_dir: Dict[str, str] = {}

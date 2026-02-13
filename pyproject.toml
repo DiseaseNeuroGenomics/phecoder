@@ -36,6 +36,9 @@ classifiers = [
 packages = [
     { include = "phecoder"}
 ]
+include = [
+    { path = "phecoder/data/*.parquet", format = ["sdist", "wheel"] }
+]
 
 [tool.poetry.urls]
 "Homepage" = "https://github.com/03bennej/phecoder.git"

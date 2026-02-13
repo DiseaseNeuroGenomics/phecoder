@@ -42,12 +42,8 @@ from phecoder import Phecoder
 # Setup
 os.environ["HF_HOME"] = "./hf-home"
 
-# Load ICD data
-icd_df = pd.read_parquet("example-data/icd_info.parquet")
-
 # Initialize
 pc = Phecoder(
-    icd_df=icd_df,
     phecodes=["Suicidal ideation", "Depression", "Anxiety"],
     output_dir="./results",
     icd_cache_dir="./icd_cache"
@@ -67,7 +63,7 @@ results = pc.load_results('ensemble-zsum')
 ```python
 import os
 import pandas as pd
-from phecoder import Phecoder
+from phecoder import Phecoder, load_icd_df
 
 # Set Hugging Face cache directory (optional but recommended)
 os.environ["HF_HOME"] = "./hf-home"
@@ -75,15 +71,15 @@ os.environ["HF_HOME"] = "./hf-home"
 
 ### 2. Define Directories
 ```python
-output_dir = "./results"              # Results saved here
-icd_cache_dir = "./icd_cache"         # ICD embeddings cached here (optional, reusable across runs)
+output_dir = "./results"  # Results saved here
+icd_cache_dir = "./icd_cache"  # ICD embeddings cached here (optional, reusable across runs)
 ```
 
 ### 3. Load ICD Codes
 
 Your ICD data must have columns: `icd_code` and `icd_string`
 ```python
-icd_df = pd.read_parquet("example-data/icd_info.parquet")
+icd_df = load_icd_df()  # loads default ICDs, or load your own according to the below format              
 ```
 
 **Example format (essential columns):**
@@ -114,7 +110,7 @@ phecode_df = pd.DataFrame({
 # Light model (fast, ~80MB)
 models = ["sentence-transformers/all-MiniLM-L6-v2"]
 
-# OR clinical-trained model (better for medical text, ~440MB)
+# OR clinically-trained model (better for medical text, ~440MB)
 models = ["FremyCompany/BioLORD-2023"]
 
 # OR multiple models (for ensemble)
@@ -123,7 +119,7 @@ models = [
     "FremyCompany/BioLORD-2023",
     "NeuML/pubmedbert-base-embeddings"
 ]
-# OR use a preset
+# OR use a preset according to our evaluation
 models = "preset:best_single"  # best single model
 models = "preset:best_ensemble"  # best set of models for ensemble (same as default)
 ```

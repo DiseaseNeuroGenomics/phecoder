@@ -1,4 +1,5 @@
 from __future__ import annotations
+from importlib import resources
 from pathlib import Path
 import pandas as pd
 import hashlib
@@ -6,6 +7,13 @@ import datetime
 import re
 import json
 from typing import Any, Dict, Iterator, Tuple, Optional, Iterable, Union
+
+
+def load_icd_df() -> pd.DataFrame:
+    """Load the bundled ICD info dataframe shipped with the package."""
+    ref = resources.files("phecoder") / "data" / "icd_info.parquet"
+    with resources.as_file(ref) as path:
+        return pd.read_parquet(path)
 
 
 def _ensure_dir(p: Path):

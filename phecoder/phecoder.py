@@ -26,6 +26,7 @@ from .utils import (
     _clean_kwargs,
     _find_all_models,
     _resolve_model_dir,
+    load_icd_df,
 )
 from .utils import list_runs as list_runs_utils
 from .utils import load_results as load_results_utils
@@ -43,7 +44,9 @@ class Phecoder:
 
     Inputs
     ------
-    icd_df : DataFrame with columns ['icd_code', 'icd_string']
+    icd_df : DataFrame with columns ['icd_code', 'icd_string'], optional
+        When *None* (the default), the bundled ``icd_info.parquet`` shipped
+        with the package is loaded automatically.
     phecodes : DataFrame[['phecode','phecode_string']] OR str OR list[str]
     models : str or list[str] of SentenceTransformer model IDs
     output_dir : base path for all outputs
@@ -62,9 +65,9 @@ class Phecoder:
 
     def __init__(
         self,
-        icd_df: pd.DataFrame,
         phecodes: Union[pd.DataFrame, str, List[str]],
         output_dir: str,
+        icd_df: Optional[pd.DataFrame] = None,
         models: Union[str, List[str]] = None,
         icd_cache_dir: Optional[str] = None,
         device: Optional[str] = None,
@@ -73,6 +76,10 @@ class Phecoder:
         st_search_kwargs: Optional[Dict[str, Any]] = None,
         per_model_encode_kwargs: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
+        # Fall back to bundled ICD data when none is provided
+        if icd_df is None:
+            icd_df = load_icd_df()
+
         # Validate ICD
         req_icd = {"icd_code", "icd_string"}
         miss = req_icd - set(icd_df.columns)

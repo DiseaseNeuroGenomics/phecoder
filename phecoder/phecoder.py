@@ -124,7 +124,7 @@ class Phecoder:
         self.st_encode_kwargs.setdefault("normalize_embeddings", True)
         self.st_encode_kwargs.setdefault("convert_to_numpy", True)
         self.st_encode_kwargs.setdefault("show_progress_bar", True)
-        self.st_encode_kwargs.setdefault("trust_remote_code", True)
+
         # We own device placement at class level; ignore any user-supplied 'device'
         self.st_encode_kwargs.pop("device", None)
 

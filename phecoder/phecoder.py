@@ -78,7 +78,7 @@ class Phecoder:
         miss = req_icd - set(icd_df.columns)
         if miss:
             raise ValueError(f"icd_df missing required columns: {miss}")
-        self.icd_df = icd_df[["icd_code", "icd_string"]].copy()
+        self.icd_df = icd_df.copy()
 
         # Normalize phecodes
         self.phecode_df = self._normalize_phecodes(phecodes)
@@ -128,7 +128,7 @@ class Phecoder:
         self.st_encode_kwargs.pop("device", None)
 
         # Fingerprints for skip-logic
-        self.icd_fp = _df_fingerprint(self.icd_df)
+        self.icd_fp = _df_fingerprint(self.icd_df[["icd_code", "icd_string"]])
         self.phecode_fp = _df_fingerprint(self.phecode_df)
         self.phecode_hash = hashlib.sha256(self.phecode_fp.encode()).hexdigest()[:16]
 
@@ -547,6 +547,15 @@ class Phecoder:
                 "created_at",
             ],
         )
+        # Attach any extra columns carried on icd_df
+        extra_icd_cols = [c for c in self.icd_df.columns if c not in {"icd_code", "icd_string"}]
+        if extra_icd_cols:
+            sim_df = sim_df.merge(
+                self.icd_df[["icd_code"] + extra_icd_cols].drop_duplicates(subset="icd_code"),
+                on="icd_code",
+                how="left",
+            )
+
         sim_df.to_parquet(sim_path, index=False)
 
         # ---------- Run-level manifest ----------

@@ -58,7 +58,7 @@ pc.run()
 pc.build_ensemble()
 
 # Load results into dataframe
-results = pc.load_results()
+results = pc.load_results('ensemble-zsum')
 ```
 
 ## A more detailed example
@@ -162,7 +162,7 @@ pc.build_ensemble(
 ### 8. Load Results
 ```python
 # Load all results (individual models + ensemble)
-results = pc.load_results(include_ensembles=True)
+results = pc.load_results()
 
 # Load ensemble results only
 ensemble_results = pc.load_results(

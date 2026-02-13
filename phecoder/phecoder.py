@@ -118,7 +118,6 @@ class Phecoder:
 
         # Encode/search kwargs
         self.st_encode_kwargs = _clean_kwargs(st_encode_kwargs)
-        self.per_model_encode_kwargs = per_model_encode_kwargs or {}
         self.st_search_kwargs = _clean_kwargs(st_search_kwargs)
         # Sensible defaults if not provided
         self.st_encode_kwargs.setdefault("normalize_embeddings", True)
@@ -157,13 +156,12 @@ class Phecoder:
         include_ensembles: bool = True,
     ) -> pd.DataFrame:
         return load_results_utils(
-            output_dir=self.output_dir,
-            phecode_hash=self.phecode_hash,
-            phecode_df=self.phecode_df,
+            dir=self.output_dir,
             models=models,
             phecode=phecode,
             phecode_ground_truth=phecode_ground_truth,
             include_ensembles=include_ensembles,
+            run_hash=self.phecode_hash,
         )
 
     def build_ensemble(
@@ -357,7 +355,7 @@ class Phecoder:
             Columns: ['model', 'run_hash', 'created_at', 'top_k', 'run_dir']
         """
         return list_runs_utils(
-            output_dir=self.output_dir,
+            dir=self.output_dir,
             models=models,
             include_ensembles=include_ensembles,
         )

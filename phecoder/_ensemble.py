@@ -367,6 +367,17 @@ def _build_ensemble_from_runs(
             "created_at",
         ],
     )
+    # Attach any extra columns carried on icd_df
+    extra_icd_cols = [c for c in icd_df.columns if c not in {"icd_code", "icd_string"}]
+    if extra_icd_cols:
+        ens_df = ens_df.merge(
+            icd_df[["icd_code"] + extra_icd_cols]
+            .assign(icd_code=lambda d: d["icd_code"].astype(str))
+            .drop_duplicates(subset="icd_code"),
+            on="icd_code",
+            how="left",
+        )
+
     ens_df.to_parquet(sim_path, index=False)
 
     # Manifest

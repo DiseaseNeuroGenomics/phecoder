@@ -181,6 +181,58 @@ ensemble_results = pc.load_results(
 - **Pre-download models** with `pc.download_models()` for batch jobs to separate download time from computation
 
 ---
+## Interactive review & ATLAS export
+
+After running Phecoder, you can interactively curate the top-K retrieved ICD
+codes per phecode in a Jupyter notebook and export the result for use in cohort
+tools like OHDSI ATLAS.
+
+Install the optional extra (adds `ipywidgets`):
+```bash
+pip install 'phecoder[review]'
+```
+
+```python
+session = pc.review(top_k=30, score_threshold=0.5)
+session  # renders a tabbed checkbox widget, one tab per phecode
+
+# After clicking "Save" in the widget, or programmatically:
+session.save("picks.parquet")   # flat table with provenance
+session.save("picks.json")      # nested concept-set JSON, grouped by phecode
+```
+
+### Exporting to OHDSI ATLAS
+
+ATLAS concept sets are defined in terms of OMOP `concept_id`s, not raw ICD
+codes. To use ATLAS export, add a `concept_id` column (and optionally
+`vocabulary_id`) to your `icd_df` **before** instantiating `Phecoder` — any
+extra columns on `icd_df` are preserved end-to-end and become available to the
+exporter:
+
+```python
+icd_df = load_icd_df()
+icd_df = icd_df.merge(my_omop_concept_map, on="icd_code", how="left")
+#                    ^ supplies concept_id (+ vocabulary_id)
+
+pc = Phecoder(phecodes=..., icd_df=icd_df, output_dir="./out")
+pc.run(); pc.build_ensemble()
+session = pc.review(top_k=30)
+session  # curate, then:
+
+pc.export_atlas(session, "./atlas_concept_sets")        # one JSON per phecode
+pc.export_atlas(session, "./atlas_concept_sets.json")   # single bundle file
+```
+
+Import the resulting JSON via the ATLAS UI ("Concept Sets → Import"). The
+exporter sets `includeDescendants=true` and `includeMapped=true` by default so
+ATLAS will follow the vocabulary hierarchy and the ICD→SNOMED `Maps to`
+relationships at query time.
+
+OMOP `concept_id`s for ICD vocabularies can be obtained from the OHDSI
+[Athena](https://athena.ohdsi.org) vocabulary download (select `ICD9CM`,
+`ICD10`, `ICD10CM`, and `SNOMED`).
+
+---
 ## See also
 For more information on how the ICD file was created, see the [ICD Data Preparation](./ICDDataPreparationREADME.md).
 

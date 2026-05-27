@@ -18,6 +18,7 @@ from ._evaluate import (
 )
 
 from ._ensemble import _build_ensemble_from_runs
+from ._review import ReviewSession, export_atlas as _export_atlas_impl
 from .utils import (
     _sanitize_model_name,
     _ensure_dir,
@@ -365,6 +366,50 @@ class Phecoder:
             dir=self.output_dir,
             models=models,
             include_ensembles=include_ensembles,
+        )
+
+    def review(
+        self,
+        phecodes: Union[str, Iterable[str], None] = None,
+        models: Union[str, Iterable[str], None] = None,
+        top_k: int = 50,
+        score_threshold: Optional[float] = None,
+        include_ensembles: bool = True,
+    ) -> ReviewSession:
+        """
+        Open an interactive review session over top-K retrieved ICD codes.
+
+        Returns a ReviewSession; render it directly in a notebook cell to
+        display the selection widget, then call .save(path) to persist.
+        """
+        results = self.load_results(
+            models=models,
+            phecode=phecodes,
+            include_ensembles=include_ensembles,
+        )
+        return ReviewSession(results, top_k=top_k, score_threshold=score_threshold)
+
+    def export_atlas(
+        self,
+        selection,
+        out_path: Union[str, Path],
+        include_descendants: bool = True,
+        include_mapped: bool = True,
+        concept_set_name_template: str = "{phecode_string}",
+    ) -> list[Path]:
+        """
+        Export a selection (ReviewSession, DataFrame, or path) as ATLAS concept-set JSON.
+
+        Requires a 'concept_id' column on the selection. Supply OMOP concept_ids
+        as an extra column on icd_df before running Phecoder so they flow through
+        into the similarity output automatically.
+        """
+        return _export_atlas_impl(
+            selection,
+            out_path,
+            include_descendants=include_descendants,
+            include_mapped=include_mapped,
+            concept_set_name_template=concept_set_name_template,
         )
 
     # ───────────────────────── internal methods ────────────────────────

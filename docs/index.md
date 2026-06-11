@@ -1,12 +1,10 @@
 # phecoder
 
-Phecoder maps clinical phenotypes (Phecodes) to diagnosis (ICD) codes using pretrained text embedding models, evaluating multiple models and ensemble methods to find the most relevant diagnosis codes for each phenotype.
+Phecoder maps clinical phenotypes (Phecodes) to diagnosis (ICD) codes using pretrained text embedding models. It evaluates multiple embedding models and ensemble methods to find the most relevant diagnosis codes for each phenotype.
 
 <p align="center">
-  <img src="figures/fig1.png" alt="Phecoder overview" width="600">
+  <img src="https://raw.githubusercontent.com/DiseaseNeuroGenomics/phecoder/main/figures/fig1.png" alt="Phecoder overview" width="600">
 </p>
-
-**[Documentation](https://diseaseneurogenomics.github.io/phecoder/)** — full usage guide, model options, review & ATLAS export, API reference.
 
 ## Install
 
@@ -14,13 +12,12 @@ Phecoder maps clinical phenotypes (Phecodes) to diagnosis (ICD) codes using pret
 pip install phecoder
 ```
 
-For GPU support, install [PyTorch with CUDA](https://pytorch.org/get-started/locally/) **before** installing phecoder. For the interactive review widget: `pip install 'phecoder[review]'`.
+For GPU support, install [PyTorch with CUDA](https://pytorch.org/get-started/locally/) **before** installing phecoder.
 
-### Developer install
+For the interactive review widget:
 
 ```bash
-git clone https://github.com/DiseaseNeuroGenomics/phecoder.git
-poetry install
+pip install 'phecoder[review]'
 ```
 
 ## Quick start
@@ -42,6 +39,8 @@ pc.build_ensemble()
 
 results = pc.load_results("ensemble-zsum")
 ```
+
+See the [Usage Guide](guide.md) for model selection, custom ICD data, and all configuration options.
 
 ## Citation
 

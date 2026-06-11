@@ -1,251 +1,219 @@
-# Phecoder: semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks
+# phecoder
 
-## Overview
+**Semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks.**
 
-Phecoder maps clinical phenotypes (Phecodes) to diagnosis (ICD) codes using pretrained text embedding models. It evaluates multiple embedding models and ensemble methods to find the most relevant diagnosis codes for each phenotype.
+Phecoder maps clinical phenotypes (Phecodes) to diagnosis codes (ICD-9/10) using pretrained text embedding models. It ranks candidate ICD codes by semantic similarity, supports multi-model ensembles for improved recall, and includes an interactive review widget for curation and export to OHDSI ATLAS.
 
 <p align="center">
-  <img src="figures/fig1.png" alt="Figure description" width="600">
+  <img src="figures/fig1.png" width="680">
 </p>
 
-## Installing Phecoder
-Note : python >=3.10 is required
+## Contents
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+- [Interactive review & ATLAS export](#interactive-review--atlas-export)
+- [Citation](#citation)
 
-### As a user
- ```
-python -m venv venv
-source venv/bin/activate
+---
+
+## Installation
+
+```bash
 pip install phecoder
- ```
-
-#### PyTorch with CUDA
-
-If you want to use a GPU / CUDA, you must install PyTorch with the matching CUDA Version **before** installing Phecoder. Follow
-[PyTorch - Get Started](https://pytorch.org/get-started/locally/) for further details on how to install PyTorch.
-
-### As a developer
-Phecoder is developed using Poetry. Follow [Poetry - Installation](https://python-poetry.org/docs/#installation) for further details on how to install Poetry. Then,
-```
-git clone https://github.com/DiseaseNeuroGenomics/phecoder.git
-poetry install
 ```
 
-# Quick Start
+**GPU support:** Install [PyTorch with CUDA](https://pytorch.org/get-started/locally/) *before* installing phecoder.
 
-## Workflow example with default settings
-The default settings in Phecoder allow you to use the best ensemble as per [our study](https://www.medrxiv.org/content/10.64898/2026.01.08.26343725v1).
-```python
-import os
-import pandas as pd
-from phecoder import Phecoder
-
-# Setup
-os.environ["HF_HOME"] = "./hf-home"
-
-# Initialize
-pc = Phecoder(
-    phecodes=["Suicidal ideation", "Depression", "Anxiety"],
-    output_dir="./results",
-    icd_cache_dir="./icd_cache"
-)
-
-# Run pipeline
-pc.run()
-pc.build_ensemble()
-
-# Load results into dataframe
-results = pc.load_results('ensemble-zsum')
-```
-
-## A more detailed example
-
-### 1. Setup and Import
-```python
-import os
-import pandas as pd
-from phecoder import Phecoder, load_icd_df
-
-# Set Hugging Face cache directory (optional but recommended)
-os.environ["HF_HOME"] = "./hf-home"
-```
-
-### 2. Define Directories
-```python
-output_dir = "./results"  # Results saved here
-icd_cache_dir = "./icd_cache"  # ICD embeddings cached here (optional, reusable across runs)
-```
-
-### 3. Load ICD Codes
-
-Your ICD data must have columns: `icd_code` and `icd_string`
-```python
-icd_df = load_icd_df()  # loads default ICDs, or load your own according to the below format              
-```
-
-**Example format (essential columns):**
-
-| icd_code     | icd_string |
-|:-------------|:-------------|
-| E11.9        | Type 2 diabetes mellitus without complications | 
-| I10          | Essential (primary) hypertension |
-| J45.909      | Unspecified asthma, uncomplicated |
-
-### 4. Define Phenotype(s)
-```python
-# Single phenotype
-phenotype = "Eating disorders"
-
-# OR multiple phenotypes
-phenotypes = ["Eating disorders", "Type 2 diabetes", "Hypertension"]
-
-# OR DataFrame with phecode and description
-phecode_df = pd.DataFrame({
-    'phecode': ['250.2', '401.1'],
-    'phecode_string': ['Type 2 diabetes', 'Hypertension']
-})
-```
-
-### 5. Choose Models
-```python
-# Light model (fast, ~80MB)
-models = ["sentence-transformers/all-MiniLM-L6-v2"]
-
-# OR clinically-trained model (better for medical text, ~440MB)
-models = ["FremyCompany/BioLORD-2023"]
-
-# OR multiple models (for ensemble)
-models = [
-    "sentence-transformers/all-MiniLM-L6-v2",
-    "FremyCompany/BioLORD-2023",
-    "NeuML/pubmedbert-base-embeddings"
-]
-# OR use a preset according to our evaluation
-models = "preset:best_single"  # best single model
-models = "preset:best_ensemble"  # best set of models for ensemble (same as default)
-```
-
-### 6. Initialize Phecoder
-```python
-pc = Phecoder(
-    icd_df=icd_df,
-    phecodes=phenotype,                  # string, list of strings, or dataframe with "phecode" column
-    models=models,
-    output_dir=output_dir,
-    icd_cache_dir=icd_cache_dir,         # Optional: cache ICD embeddings for reuse
-    st_search_kwargs={
-    "top_k": 100,
-    }      # Return top 100 ICD codes per phenotype
-)
-```
-
-### 7. Run Pipeline
-```python
-# Option 1: Run directly (models auto-download if needed)
-pc.run()
-
-# Option 2: Pre-download models, then run (useful for batch jobs)
-pc.download_models()  # Optional: explicitly download models first
-pc.run()
-
-# Build ensemble (combines multiple models using reciprocal rank fusion)
-pc.build_ensemble(
-    method="rrf",
-    method_kwargs={"k": 60},
-    name="ens:rrf60"
-)
-```
-
-### 8. Load Results
-```python
-# Load all results (individual models + ensemble)
-results = pc.load_results()
-
-# Load ensemble results only
-ensemble_results = pc.load_results(
-    models=['ens:rrf60'],
-    include_ensembles=True
-)
-```
-
----
-
----
-
-## Tips
-
-- **First run is slower** - Models download and embeddings are computed
-- **Subsequent runs are fast** - ICD embeddings are cached and reused
-- **Use `icd_cache_dir`** to share ICD embeddings across multiple projects
-- **Start with light models** for testing, then use clinical models for production
-- **Ensembles typically outperform individual models**
-- **Pre-download models** with `pc.download_models()` for batch jobs to separate download time from computation
-
----
-## Interactive review & ATLAS export
-
-After running Phecoder, you can interactively curate the top-K retrieved ICD
-codes per phecode in a Jupyter notebook and export the result for use in cohort
-tools like OHDSI ATLAS.
-
-Install the optional extra (adds `ipywidgets`):
+**Interactive review widget:**
 ```bash
 pip install 'phecoder[review]'
 ```
 
+**Developer install** (requires [Poetry](https://python-poetry.org/docs/#installation)):
+```bash
+git clone https://github.com/DiseaseNeuroGenomics/phecoder.git
+poetry install
+```
+
+---
+
+## Quick start
+
+```python
+import os
+from phecoder import Phecoder
+
+os.environ["HF_HOME"] = "./hf-home"   # optional: set model cache location
+
+pc = Phecoder(
+    phecodes=["Suicidal ideation", "Depression", "Anxiety"],
+    output_dir="./results",
+)
+
+pc.run()
+pc.build_ensemble()
+
+results = pc.load_results("ensemble-zsum")
+```
+
+---
+
+## Usage
+
+### ICD data
+
+Phecoder ships with a bundled reference ICD file and loads it automatically. You can supply your own DataFrame instead — it must contain `icd_code` and `icd_string` columns. Any additional columns (e.g. `concept_id`) are preserved through the pipeline.
+
+```python
+from phecoder import load_icd_df
+
+icd_df = load_icd_df()   # bundled ICD-9/10 reference
+```
+
+> **Tip:** For best results, use the ICD descriptions from your own EHR/biobank dataset rather than the reference file. Semantic matching is most accurate when the strings match what your data actually contains.
+
+### Phenotypes
+
+The `phecodes` argument accepts a string, a list of strings, or a DataFrame:
+
+```python
+# String or list of strings — phecode IDs are assigned automatically
+phecodes = "Eating disorders"
+phecodes = ["Eating disorders", "Type 2 diabetes", "Hypertension"]
+
+# DataFrame — use this to specify your own phecode IDs
+import pandas as pd
+phecodes = pd.DataFrame({
+    "phecode":        ["250.2",          "401.1"],
+    "phecode_string": ["Type 2 diabetes","Hypertension"],
+})
+```
+
+### Model selection
+
+| Preset | Description |
+|---|---|
+| `"preset:best_single"` | Best single model from our evaluation |
+| `"preset:best_ensemble"` | Best set of models for ensemble *(default)* |
+
+You can also pass any [SentenceTransformers](https://www.sbert.net) model ID directly:
+
+```python
+# Single model
+models = "sentence-transformers/all-MiniLM-L6-v2"   # fast, ~80 MB
+models = "FremyCompany/BioLORD-2023"                 # clinical text, ~440 MB
+
+# Multiple models (for ensemble)
+models = [
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "FremyCompany/BioLORD-2023",
+    "NeuML/pubmedbert-base-embeddings",
+]
+```
+
+### Configuration
+
+```python
+pc = Phecoder(
+    phecodes       = phecodes,
+    output_dir     = "./results",
+    icd_df         = icd_df,             # optional; uses bundled data if omitted
+    models         = models,             # optional; defaults to preset:best_ensemble
+    icd_cache_dir  = "./icd_cache",      # cache ICD embeddings for reuse across runs
+    device         = None,               # "cuda" / "cpu" / None (auto-detect)
+    dtype          = "float16",          # embedding storage dtype
+    st_search_kwargs = {"top_k": 100},   # number of ICD codes to retrieve per phenotype
+)
+```
+
+`icd_cache_dir` is useful when running multiple projects against the same ICD corpus — embeddings are computed once and reused.
+
+### Running the pipeline
+
+```python
+# Models download automatically on first run
+pc.run()
+
+# Or pre-download explicitly (useful before batch jobs)
+pc.download_models()
+pc.run()
+```
+
+Results are written to `output_dir` and cached — re-running with the same inputs is a no-op unless `overwrite=True`.
+
+### Building an ensemble
+
+```python
+# Default ensemble (reciprocal rank fusion, recommended)
+pc.build_ensemble()
+
+# Custom ensemble
+pc.build_ensemble(method="rrf", method_kwargs={"k": 60}, name="ens:rrf60")
+```
+
+### Loading results
+
+```python
+# All results (individual models + ensembles)
+df = pc.load_results()
+
+# Specific model or ensemble by name
+df = pc.load_results("ensemble-zsum")
+df = pc.load_results(models=["ens:rrf60"], include_ensembles=True)
+```
+
+Results are returned as a long-format DataFrame with columns: `model`, `phecode`, `phecode_string`, `icd_code`, `icd_string`, `score`, `rank`.
+
+---
+
+## Interactive review & ATLAS export
+
+After running the pipeline, interactively curate the top-K retrieved codes per phecode in a Jupyter notebook:
+
 ```python
 session = pc.review(top_k=30, score_threshold=0.5)
-session  # renders a tabbed checkbox widget, one tab per phecode
+session   # renders a tabbed checkbox widget — one tab per phecode
+```
 
-# After clicking "Save" in the widget, or programmatically:
+Save your selections in any format:
+
+```python
 session.save("picks.parquet")   # flat table with provenance
-session.save("picks.json")      # nested concept-set JSON, grouped by phecode
+session.save("picks.json")      # nested JSON, grouped by phecode
+session.save("picks.csv")
 ```
 
 ### Exporting to OHDSI ATLAS
 
-ATLAS concept sets are defined in terms of OMOP `concept_id`s, not raw ICD
-codes. To use ATLAS export, add a `concept_id` column (and optionally
-`vocabulary_id`) to your `icd_df` **before** instantiating `Phecoder` — any
-extra columns on `icd_df` are preserved end-to-end and become available to the
-exporter:
+ATLAS concept sets use OMOP `concept_id`s rather than raw ICD codes. Add a `concept_id` column to `icd_df` before initializing `Phecoder` and it will flow through to the export automatically:
 
 ```python
 icd_df = load_icd_df()
 icd_df = icd_df.merge(my_omop_concept_map, on="icd_code", how="left")
-#                    ^ supplies concept_id (+ vocabulary_id)
 
 pc = Phecoder(phecodes=..., icd_df=icd_df, output_dir="./out")
-pc.run(); pc.build_ensemble()
-session = pc.review(top_k=30)
-session  # curate, then:
+pc.run()
+pc.build_ensemble()
 
-pc.export_atlas(session, "./atlas_concept_sets")        # one JSON per phecode
-pc.export_atlas(session, "./atlas_concept_sets.json")   # single bundle file
+session = pc.review(top_k=30)
+
+pc.export_atlas(session, "./atlas_concept_sets")       # one JSON per phecode
+pc.export_atlas(session, "./atlas_concept_sets.json")  # single bundle
 ```
 
-Import the resulting JSON via the ATLAS UI ("Concept Sets → Import"). The
-exporter sets `includeDescendants=true` and `includeMapped=true` by default so
-ATLAS will follow the vocabulary hierarchy and the ICD→SNOMED `Maps to`
-relationships at query time.
-
-OMOP `concept_id`s for ICD vocabularies can be obtained from the OHDSI
-[Athena](https://athena.ohdsi.org) vocabulary download (select `ICD9CM`,
-`ICD10`, `ICD10CM`, and `SNOMED`).
+Import the resulting JSON in ATLAS via **Concept Sets → Import**. The exporter sets `includeDescendants=true` and `includeMapped=true` by default. OMOP concept IDs for ICD vocabularies are available from [OHDSI Athena](https://athena.ohdsi.org) (select ICD9CM, ICD10, ICD10CM, SNOMED).
 
 ---
-## See also
-For more information on how the ICD file was created, see the [ICD Data Preparation](./ICDDataPreparationREADME.md).
 
+## Citation
 
-**For best results, use the actual ICD codes and descriptions from your biobank/EHR dataset.** 
+If you use phecoder in research, please cite:
 
-The semantic matching works best when it operates on the same code descriptions that exist in your data. If your EHR uses specific phrasings or truncated descriptions, provide those exact strings rather than standard reference descriptions. This ensures the ranked results directly correspond to codes available in your dataset.
+> **Phecoder: semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks.**  
+> Jamie J. R. Bennett, Simone Tomasi, Sonali Gupta, VA Million Veteran Program, Georgios Voloudakis, Panos Roussos, David Burstein (2026).  
+> doi: [10.64898/2026.01.08.26343725](https://www.medrxiv.org/content/10.64898/2026.01.08.26343725v1)
 
+---
 
-
-__Support__: If you have any questions, feel free to post your question as a GitHub Issue here or send an email to jamie.bennett@mssm.edu.
-
-## Citations 
-If you use Phecoder in research, please cite our preprint on medRxiv:
-
-> **Phecoder: semantic retrieval for auditing and expanding ICD-based phenotypes in EHR biobanks.** Jamie J. R. Bennett, Simone Tomasi, Sonali Gupta, VA Million Veteran Program, Georgios Voloudakis, Panos Roussos, David Burstein (2026). doi: [https://doi.org/10.64898/2026.01.08.26343725](https://www.medrxiv.org/content/10.64898/2026.01.08.26343725v1).
+**Support:** open a [GitHub Issue](https://github.com/DiseaseNeuroGenomics/phecoder/issues) or email jamie.bennett@mssm.edu.

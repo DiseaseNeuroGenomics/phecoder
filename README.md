@@ -30,7 +30,7 @@ pip install phecoder
 pip install 'phecoder[review]'
 ```
 
-**Developer install:**
+**Developer install** (requires [Poetry](https://python-poetry.org/docs/#installation)):
 ```bash
 git clone https://github.com/DiseaseNeuroGenomics/phecoder.git
 poetry install

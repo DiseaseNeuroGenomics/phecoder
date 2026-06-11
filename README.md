@@ -8,6 +8,13 @@ Phecoder maps clinical phenotypes (Phecodes) to diagnosis codes (ICD-9/10) using
   <img src="figures/fig1.png" width="680">
 </p>
 
+## Contents
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+- [Interactive review & ATLAS export](#interactive-review--atlas-export)
+- [Citation](#citation)
+
 ---
 
 ## Installation
